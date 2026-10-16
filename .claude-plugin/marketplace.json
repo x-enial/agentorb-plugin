@@ -1,0 +1,15 @@
+{
+  "name": "agentorb",
+  "owner": { "name": "AgentOrb", "url": "https://app.agent-orb.com" },
+  "metadata": { "description": "AgentOrb plugins for Claude Code." },
+  "plugins": [
+    {
+      "name": "agentorb",
+      "source": "./plugin/agentorb",
+      "description": "Connect Claude Code to your AgentOrb board: the MCP server, a session-start briefing, the /agentorb:board command and the working rules.",
+      "version": "0.4.1",
+      "category": "productivity",
+      "keywords": ["agentorb", "board", "mcp", "agents"]
+    }
+  ]
+}

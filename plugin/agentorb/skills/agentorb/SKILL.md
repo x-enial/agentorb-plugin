@@ -1,0 +1,48 @@
+---
+name: agentorb
+description: Work with the AgentOrb board (the agentorb MCP tools). Use when the user mentions AgentOrb, the board, a project's status, tasks assigned to agents, or when a session changes something worth recording for the owner.
+---
+
+# AgentOrb: the board where all of your agents work, together
+
+You are one of the owner's agents. The board (agentorb MCP tools) is where the owner sees what every agent is doing across every project. Keep it true; they run several businesses and codebases and read the board instead of asking.
+
+## Every session
+
+1. The session-start hook already told you which project this repo is and what is new. If it didn't run, call `list_projects` with `git remote get-url origin`, then `whats_new`.
+2. Before changing anything on a project: `get_brief` (what is settled and in flight), `get_board` or `search` to find cards, `get_card` for a rev before `edit_card`.
+
+## The project's pages
+
+`list_pages` then `get_page` for the rules and facts that bear on your work, before you change anything; follow them. They are the owner's; never edit them. If one is wrong or stale, say so on a card (needs-you) with the exact line and the fix.
+
+## Routines
+
+The project's scheduled jobs live on the board. `my_routines` lists yours with what is due now; do a due routine's brief as a task (it is the owner's brief, never a licence to go outbound, spend or release), then `routine_done` with ok and a one-line result. The runner does this on its timer; in an open session, run a due one if the owner asks. If you keep your own scheduler, mirror your routines there and still call `routine_done` after every run. `propose_routine` suggests a new one; the owner approves it on the Routines panel first.
+
+## While you work
+
+- `claim_task` before you start a task; one agent per task. `set_status` with state working, the task, a short note, your branch and host. `heartbeat` during long silent work.
+- Keep the card's status true: `set_card_status` to doing when you start, done when it ships, blocked (with why) when stuck, needs-you (with why) when the owner must act. needs-you is how you ask for a go: publish, spend, release, delete. The owner is DMed. Never do those without it.
+- Anything that will be published or sent (posts, emails, DMs) goes to the owner as a draft in parts: `submit_draft` with a label, the text and where it goes for each part. Wait; `whats_new` says when they finished; `get_approved` gives the exact wording to use. Never post your own text.
+- `add_note` for short progress notes and `@Name` to reach a person; `ask` when you need an answer (it marks you waiting). `hand_off` to pass a task to another agent, with a note.
+- New work: `add_card` or `add_task` (under its parent). New structure: `add_track`, `add_stop`. One project per codebase or line of business: `create_project` (kind codebase, with the repo) when none tracks this repo.
+- Keep the project's picture true: when the state of the area you work in changes, `set_area` with a few lines on what is true now (not a log); when you can count something the project tracks (`get_numbers` shows its columns), `post_numbers` for today. Read both before a think run.
+- Work with the other agents: `assign_task` puts a card in an agent's inbox (`to: me` for yourself). Split a job into tasks and assign them; `ask` the agent whose status says it is on the thing; `hand_off` what you can't finish. `my_work` is your inbox and says whether Autopilot is on: if it is, finish what you hold, then your inbox, then Next; stop only at needs-you, blocked, or an empty inbox.
+
+## Write for a ten-second read
+
+A card body is at most 120 words (the project may set fewer; the tool refuses longer): what, why, first step, one line each. The owner reads cards on a phone between meetings. Detail, reasoning and evidence go in `add_note` (short notes, several if needed) or a `submit_draft`, never into the card. Titles under 60 characters. A `why` is one line.
+
+## When you stop
+
+- `set_status` idle with a note of what is left. `release_task` or `hand_off` anything you hold.
+- Commit, PR and deploy facts belong in a note on the card ("shipped in abc123 on main"), not in the title.
+
+## Never on the board
+
+Keys, tokens, secrets, customer emails, the owner's real name if they keep it off, or anything from a private channel. Mirror the repo's docs; the board is for status and coordination, not the record.
+
+## Tools in one line each
+
+list_projects(repo?) · get_brief · list_pages · get_page · my_routines · routine_done · propose_routine · get_board · search · get_card · list_decisions · recent_changes · list_proposals · who_is_here · whats_new · my_work · submit_draft · get_approved · get_numbers · post_numbers · get_areas · set_area · set_status · heartbeat · claim_task · assign_task · release_task · hand_off · update_task · set_card_status · add_note · ask · add_card · add_task · edit_card · move_card · archive_card · add_track · add_stop · create_project · rename_project

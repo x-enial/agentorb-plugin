@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agentorb": {
+      "type": "http",
+      "url": "${AGENTORB_URL:-https://app.agent-orb.com/api/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${AGENTORB_KEY}"
+      }
+    }
+  }
+}
