@@ -10,7 +10,7 @@
  * failure prints one short line and exits 0: a board outage must not block a session.
  */
 import { execSync } from "node:child_process";
-import { keyIn, markLive, sameAgentElsewhere, serverUrl, session, worktreeOf } from "./config.mjs";
+import { keyIn, markLive, reachOf, sameAgentElsewhere, serverUrl, session, worktreeOf } from "./config.mjs";
 
 const out = (s) => process.stdout.write(s + "\n");
 const me = session();
@@ -94,6 +94,8 @@ if (projects.error) {
   process.exit(0);
 }
 const p = projects.json ?? {};
+// 0054: the access inventory: what this session can reach outside AgentOrb, by name only.
+void call("report_reach", reachOf());
 lines.push(`# AgentOrb (${p.workspace?.name ?? "your workspace"}; you are "${p.key?.name ?? "an agent"}"${me.keySource === "env" ? ", from AGENTORB_KEY: the same agent as every repo without its own key" : ""})`);
 const pinnedProject = pin ? (p.projects ?? []).find((x) => x.project === pin.project) : undefined;
 if (pinnedProject) {
@@ -121,6 +123,7 @@ if (news.json) {
   if (n.queue?.pending) bits.push(`${n.queue.pending} of yours still waiting for review`);
   if (changed.length) bits.push(`changes in ${changed.length} project${changed.length === 1 ? "" : "s"}`);
   if (n.since) lines.push(`Since ${String(n.since).slice(0, 16).replace("T", " ")} UTC: ${bits.length ? bits.join(", ") : "nothing new"}.`);
+  if (n.key?.daysLeft !== undefined) warnings.push(`This agent's key runs out in ${n.key.daysLeft} day${n.key.daysLeft === 1 ? "" : "s"}. In AgentOrb: Settings → Agents → this agent → New key, then put it in this repo's .agentorb.local.json (and revoke the old one).`);
   if (holding.length) lines.push(`You hold: ${holding.map((h) => `“${h.title}”`).join(", ")} (release_task or hand_off when done).`);
   const show = (label, arr, f) => {
     if (!arr.length) return;

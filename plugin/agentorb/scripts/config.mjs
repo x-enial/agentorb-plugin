@@ -193,3 +193,31 @@ export function liveHere(root) {
     return false;
   }
 }
+
+/* ---- the access inventory (0054): what this session can reach outside AgentOrb, by name only */
+
+// A rule that carries something secret-looking (a long random run of letters and digits) isn't sent at all.
+const secretish = (s) => /[A-Za-z0-9_-]{24,}/.test(s) && /[A-Z]/.test(s) && /[0-9]/.test(s);
+
+/**
+ * { servers, plugins, allow, deny, mode } from Claude Code's settings: MCP servers by name (user and local from
+ * ~/.claude.json, project from .mcp.json), enabled plugins, and the permission rules that allow or deny without
+ * asking (user, project and local settings). Never URLs, headers, env or keys. claude.ai connectors aren't in local
+ * files, so they don't show here.
+ */
+export function reachOf(root = session().root) {
+  const home = homedir();
+  const servers = [];
+  const add = (obj, from) => {
+    for (const name of Object.keys(obj ?? {})) if (!servers.some((s) => s.name === name)) servers.push({ name: name.slice(0, 100), from });
+  };
+  const claudeJson = readJson(join(home, ".claude.json")) ?? {};
+  add(claudeJson.mcpServers, "user");
+  add(claudeJson.projects?.[root]?.mcpServers, "local");
+  add(readJson(join(root, ".mcp.json"))?.mcpServers, "project");
+  const settings = [join(home, ".claude", "settings.json"), join(root, ".claude", "settings.json"), join(root, ".claude", "settings.local.json")].map(readJson).filter(Boolean);
+  const plugins = [...new Set(settings.flatMap((s) => Object.entries(s.enabledPlugins ?? {}).filter(([, on]) => on).map(([k]) => k)))].slice(0, 100);
+  const rules = (k) => [...new Set(settings.flatMap((s) => (Array.isArray(s.permissions?.[k]) ? s.permissions[k] : [])))].filter((r) => typeof r === "string" && !secretish(r)).map((r) => r.slice(0, 200)).slice(0, 300);
+  const mode = settings.map((s) => s.permissions?.defaultMode).filter(Boolean).pop();
+  return { servers: servers.slice(0, 100), plugins, allow: rules("allow"), deny: rules("deny"), ...(mode ? { mode: String(mode).slice(0, 40) } : {}) };
+}
