@@ -11,7 +11,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { chmodSync, existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
-import { serverUrl, session } from "./config.mjs";
+import { serverUrl, session, strayServers } from "./config.mjs";
 
 const me = session();
 const site = serverUrl(me.link).replace(/\/api\/mcp$/, "");
@@ -44,7 +44,7 @@ function open(url) {
 
 let start;
 try {
-  start = await post("/api/connect/start", { repo: remote, folder: basename(me.root), host: hostname(), project: me.link?.project, vendor: "claude-code" }, me.key);
+  start = await post("/api/connect/start", { repo: remote, folder: basename(me.root), host: hostname(), project: me.link?.project, vendor: "claude-code", keySource: me.keySource ?? undefined }, me.key);
 } catch (e) {
   say(`AgentOrb: couldn't start connecting (${e.message}).`);
   process.exit(1);
@@ -109,4 +109,5 @@ if (answer.replaced) {
     if (spots.length) say(`Your shell still sets AGENTORB_KEY to ${r.name}'s retired key (${spots.join(", ")}). Those lines can come out.`);
   }
 }
+for (const x of strayServers(me.root)) say(`This repo also has an AgentOrb MCP server set up by hand ("${x.name}", ${x.scope} scope) with an older key: it would still act as that agent. Remove it with: ${x.remove}`);
 say("Restart Claude Code in this repo (or /mcp, then reconnect agentorb) so the connection uses the new agent.");

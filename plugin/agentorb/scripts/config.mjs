@@ -221,3 +221,25 @@ export function reachOf(root = session().root) {
   const mode = settings.map((s) => s.permissions?.defaultMode).filter(Boolean).pop();
   return { servers: servers.slice(0, 100), plugins, allow: rules("allow"), deny: rules("deny"), ...(mode ? { mode: String(mode).slice(0, 40) } : {}) };
 }
+
+/**
+ * AgentOrb MCP servers set up by hand next to the plugin's (`claude mcp add ... agentorb`, from before the plugin):
+ * each acts as whatever agent its own key is, so a session would be two agents at once (one per server). Names and
+ * scopes only, with the command that removes each.
+ */
+export function strayServers(root = session().root) {
+  const home = homedir();
+  const out = [];
+  const look = (servers, scope) => {
+    for (const [name, cfg] of Object.entries(servers ?? {})) {
+      const url = String(cfg?.url ?? "");
+      if (!/agent-orb\.com\/api\/mcp|\/api\/mcp$/.test(url) || !/agent-?orb/i.test(name + url)) continue;
+      out.push({ name, scope, remove: `claude mcp remove ${name} -s ${scope}` });
+    }
+  };
+  const claudeJson = readJson(join(home, ".claude.json")) ?? {};
+  look(claudeJson.mcpServers, "user");
+  look(claudeJson.projects?.[root]?.mcpServers, "local");
+  look(readJson(join(root, ".mcp.json"))?.mcpServers, "project");
+  return out;
+}

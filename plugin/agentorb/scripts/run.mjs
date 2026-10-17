@@ -8,6 +8,10 @@
  *   node run.mjs --job work|think --prompt "/agentorb:work 1" -- <claude args…>
  */
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { liveHere, serverUrl, session } from "./config.mjs";
 
 // This repo's own agent (.agentorb.local.json) or AGENTORB_KEY; this repo's board only (.agentorb.json).
@@ -158,7 +162,23 @@ const code = await new Promise((done) => {
   child.on("error", () => done(127));
 });
 if (buf) read(buf);
-tell({ ended: { ok: code === 0 && !seen.error, result: (seen.result || "").split("\n").map((l) => l.trim()).filter(Boolean).slice(-1)[0]?.slice(0, 200) }, ...(seen.windows ? { windows: seen.windows, status: seen.status ?? undefined } : {}) });
+// Why a run ended (0056), so the runner does the right thing next: ok; limit (the plan's window is spent or the API
+// refused for load: wait for the reset, don't retry into it); timeout (the run hit its time box); logic (it ran but
+// ended in an error: its own retry won't help, so back off); crash (it died without a result: retry once).
+const ok = code === 0 && !seen.error;
+const limitHit = /rejected/i.test(seen.status || "") || /usage limit|rate.?limit|\b429\b|overloaded|\b529\b|quota|credit balance/i.test(seen.result || "");
+const kind = ok ? "ok" : code === 143 || code === 124 ? "timeout" : limitHit ? "limit" : seen.result && seen.error ? "logic" : "crash";
+const resets = (seen.windows || []).filter((w) => w.resetsAt && w.used >= 0.95).map((w) => w.resetsAt);
+const retryAt = kind === "limit" ? (resets.length ? Math.min(...resets) : Date.now() + 30 * 60_000) : undefined;
+tell({ ended: { ok, kind, ...(retryAt ? { retryAt } : {}), result: (seen.result || "").split("\n").map((l) => l.trim()).filter(Boolean).slice(-1)[0]?.slice(0, 200) }, ...(seen.windows ? { windows: seen.windows, status: seen.status ?? undefined } : {}) });
 await Promise.race([chain, new Promise((r) => setTimeout(r, 8000))]);
 if (seen.result) process.stdout.write(seen.result + "\n");
-process.exit(code);
+// The runner reads the outcome from here (it starts this script through agentorb-run.sh).
+try {
+  const dir = join(homedir(), ".claude", "agentorb", "runs");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${createHash("sha256").update(key).digest("hex").slice(0, 16)}.json`), JSON.stringify({ kind, retryAt: retryAt ?? null, at: Date.now() }));
+} catch {
+  /* best effort */
+}
+process.exit({ ok: 0, limit: 75, logic: 65, crash: 70, timeout: 124 }[kind]);

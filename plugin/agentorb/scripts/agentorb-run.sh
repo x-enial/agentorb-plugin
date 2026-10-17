@@ -31,4 +31,9 @@ echo "$(date -Is) agentorb $MODE run in $(pwd) (max $MAX task, ${MINUTES}m, tool
 if [ "$MODE" = "think" ]; then PROMPT="/agentorb:think"; else PROMPT="/agentorb:work $MAX"; fi   # a due routine replaces the prompt inside run.mjs
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # run.mjs asks the board first (a hold or a plan window past 85% means no run), then reports steps and usage live.
-timeout "${MINUTES}m" node "$HERE/run.mjs" --job "$MODE" --prompt "$PROMPT" -- --permission-mode dontAsk --allowedTools "$TOOLS" "$@" || echo "$(date -Is) run ended with status $?"
+# The run's status goes back to the runner (0056: it decides what to do next from it: 75 plan limit, 65 stuck,
+# 70 crashed, 124 out of time).
+rc=0
+timeout "${MINUTES}m" node "$HERE/run.mjs" --job "$MODE" --prompt "$PROMPT" -- --permission-mode dontAsk --allowedTools "$TOOLS" "$@" || rc=$?
+[ "$rc" -ne 0 ] && echo "$(date -Is) run ended with status $rc"
+exit "$rc"

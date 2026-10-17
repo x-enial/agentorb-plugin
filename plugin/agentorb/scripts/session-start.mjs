@@ -10,7 +10,7 @@
  * failure prints one short line and exits 0: a board outage must not block a session.
  */
 import { execSync } from "node:child_process";
-import { keyIn, markLive, reachOf, sameAgentElsewhere, serverUrl, session, worktreeOf } from "./config.mjs";
+import { keyIn, markLive, reachOf, sameAgentElsewhere, serverUrl, session, strayServers, worktreeOf } from "./config.mjs";
 
 const out = (s) => process.stdout.write(s + "\n");
 const me = session();
@@ -42,6 +42,9 @@ if (wt.linked && me.keySource !== "repo") {
   warnings.push(`This is a second worktree of ${wt.main ?? "this repo"} with no agent of its own: it acts as the AGENTORB_KEY agent. Run /agentorb:init to give it one (a new agent, named for its role).`);
 } else if (wt.linked && mainKey && mainKey === key) {
   warnings.push(`This worktree's .agentorb.local.json has the same key as ${wt.main}: both are one agent on the board (one status line, one set of claims). Run /agentorb:init here to give this worktree its own agent.`);
+}
+for (const x of strayServers(me.root)) {
+  warnings.push(`This repo also has an AgentOrb MCP server set up by hand ("${x.name}", ${x.scope} scope) with its own key, next to the plugin's: calls through its tools (mcp__${x.name}__*) act as whatever agent that key is, not this repo's. Remove it with \`${x.remove}\` and restart Claude Code; the plugin's server (mcp__plugin_agentorb_agentorb__*) is the one to use.`);
 }
 const twins = sameAgentElsewhere(key, input.session_id, me.root);
 if (twins.length) {
@@ -96,7 +99,8 @@ if (projects.error) {
 const p = projects.json ?? {};
 // 0054: the access inventory: what this session can reach outside AgentOrb, by name only.
 void call("report_reach", reachOf());
-lines.push(`# AgentOrb (${p.workspace?.name ?? "your workspace"}; you are "${p.key?.name ?? "an agent"}"${me.keySource === "env" ? ", from AGENTORB_KEY: the same agent as every repo without its own key" : ""})`);
+const meAgent = p.key?.agent ?? p.agent?.name ?? p.key?.name ?? "an agent";
+lines.push(`# AgentOrb (${p.workspace?.name ?? "your workspace"}; you are "${meAgent}"${me.keySource === "env" ? ", from AGENTORB_KEY: the same agent as every repo without its own key" : ""})`);
 const pinnedProject = pin ? (p.projects ?? []).find((x) => x.project === pin.project) : undefined;
 if (pinnedProject) {
   lines.push(`This repo is the project "${pinnedProject.name}" (slug ${pinnedProject.project}, from .agentorb.json). Use that slug with the agentorb tools.`);

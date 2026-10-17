@@ -11,6 +11,9 @@
  *   * * * * * cd /path/to/repo && flock -n /tmp/agentorb-runner-$(basename "$PWD").lock node "$(ls -d ~/.claude/plugins/cache/agentorb/agentorb/* | sort -V | tail -1)/scripts/runner.mjs" >> ~/agentorb-runner.log 2>&1
  */
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { liveHere, serverUrl, session } from "./config.mjs";
@@ -21,6 +24,8 @@ const base = serverUrl(me.link).replace(/\/api\/mcp\/?$/, "").replace(/\/$/, "")
 const here = dirname(fileURLToPath(import.meta.url));
 const log = (s) => process.stdout.write(`${new Date().toISOString()} ${s}\n`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** ±25% (0056): many runners retrying on the same schedule would hit the board in one burst. */
+const jitter = (ms, f = 0.25) => Math.round(ms * (1 - f + Math.random() * 2 * f));
 
 if (!key) {
   log("no key: put this repo's agent key in .agentorb.local.json or export AGENTORB_KEY");
@@ -59,6 +64,15 @@ let backoff = 5_000;
 // instead of spending plan usage on it every few seconds.
 let last = "";
 let repeats = 0;
+let crashes = 0;
+/** The last run's outcome, as run.mjs wrote it (kind and, for a plan limit, when it resets). */
+function outcome() {
+  try {
+    return JSON.parse(readFileSync(join(homedir(), ".claude", "agentorb", "runs", `${createHash("sha256").update(me.key).digest("hex").slice(0, 16)}.json`), "utf8"));
+  } catch {
+    return null;
+  }
+}
 while (!stopping) {
   const a = await wait();
   if (a.fatal) {
@@ -66,15 +80,16 @@ while (!stopping) {
     process.exit(1);
   }
   if (a.error) {
-    log(`board unreachable (${a.error}); retrying in ${Math.round(backoff / 1000)}s`);
-    await sleep(backoff);
+    const wait_ = jitter(backoff);
+    log(`board unreachable (${a.error}); retrying in ${Math.round(wait_ / 1000)}s`);
+    await sleep(wait_);
     backoff = Math.min(backoff * 2, 300_000);
     continue;
   }
   backoff = 5_000;
   if (a.held) {
     log("on hold; checking again in a minute");
-    await sleep(60_000);
+    await sleep(jitter(60_000));
     continue;
   }
   if (!a.wake) continue;
@@ -84,15 +99,35 @@ while (!stopping) {
   if (repeats) {
     const ms = Math.min(15 * 60_000 * repeats, 2 * 60 * 60_000);
     log(`"${a.what}" is still waiting after the last run; trying again in ${Math.round(ms / 60_000)} min`);
-    await sleep(ms);
+    await sleep(jitter(ms));
   }
   if (liveHere(me.root)) {
     log(`work: ${a.why} "${a.what}", but you have a session open in this repo; checking again in 5 min`);
-    await sleep(5 * 60_000);
+    await sleep(jitter(5 * 60_000));
     continue;
   }
   log(`work: ${a.why} "${a.what}"; starting a run`);
   const code = await run();
-  log(`run ended (${code})`);
-  await sleep(code === 0 ? 5_000 : 60_000);
+  // 0056: what to do next depends on why it ended.
+  if (code === 0) {
+    crashes = 0;
+    await sleep(jitter(5_000));
+  } else if (code === 75) {
+    // The plan's window is spent (or the API is overloaded): wait for the reset instead of retrying into it.
+    const until = outcome()?.retryAt ?? Date.now() + 30 * 60_000;
+    const ms = Math.max(60_000, Math.min(until - Date.now(), 6 * 60 * 60_000));
+    log(`run hit the plan limit; waiting ${Math.round(ms / 60_000)} min, until it resets`);
+    await sleep(jitter(ms, 0.05) + 30_000);
+  } else if (code === 70) {
+    // Died without a result: retry once soon; again, and it is something real, so back off and let the board show it.
+    crashes += 1;
+    const ms = crashes === 1 ? 60_000 : Math.min(30 * 60_000 * (crashes - 1), 2 * 60 * 60_000);
+    log(`run crashed (${crashes} in a row); trying again in ${Math.round(ms / 60_000)} min`);
+    await sleep(jitter(ms));
+  } else {
+    // 65 stuck (it ran and ended in an error) or 124 out of time: the same run again won't fix it right away.
+    crashes = 0;
+    log(`run ended ${code === 124 ? "out of time" : "with an error"} (${code}); next try in 10 min`);
+    await sleep(jitter(10 * 60_000));
+  }
 }

@@ -40,6 +40,10 @@ A card body is at most 120 words (the project may set fewer; the tool refuses lo
 - `set_status` idle with a note of what is left. `release_task` or `hand_off` anything you hold.
 - Commit, PR and deploy facts belong in a note on the card ("shipped in abc123 on main"), not in the title.
 
+## Long work: resume, not restart
+
+On a card that takes many steps, call `checkpoint` after each step that would hurt to redo (step N of M, what's done and where, what's next). If your run dies, the next run on the card (yours or another agent's) gets it back from `claim_task` as `resume`: check `resume.done` holds, then start at `resume.next`.
+
 ## Guardrails you will meet
 
 - Sending, posting or publishing goes through the outbound gate: use `get_approved` and send its text exactly, to the approved recipients. Anything else is stopped; new wording goes to the person with `submit_draft`.
@@ -53,4 +57,4 @@ Keys, tokens, secrets, customer emails, the owner's real name if they keep it of
 
 ## Tools in one line each
 
-list_projects(repo?) · get_brief · list_pages · get_page · my_routines · routine_done · propose_routine · get_board · search · get_card · list_decisions · recent_changes · list_proposals · who_is_here · whats_new · my_work · submit_draft · get_approved · get_numbers · post_numbers · get_areas · set_area · set_status · heartbeat · claim_task · assign_task · release_task · hand_off · update_task · set_card_status · add_note · ask · message_agent · reply_to_peer · report_reach · add_card · add_task · edit_card · move_card · archive_card · add_track · add_stop · create_project · rename_project
+list_projects(repo?) · get_brief · list_pages · get_page · my_routines · routine_done · propose_routine · get_board · search · get_card · list_decisions · recent_changes · list_proposals · who_is_here · whats_new · my_work · submit_draft · get_approved · get_numbers · post_numbers · get_areas · set_area · set_status · heartbeat · claim_task · assign_task · release_task · hand_off · update_task · set_card_status · add_note · ask · message_agent · reply_to_peer · report_reach · checkpoint · wake_check_url · add_card · add_task · edit_card · move_card · archive_card · add_track · add_stop · create_project · rename_project
