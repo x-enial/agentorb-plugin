@@ -93,13 +93,23 @@ export function session() {
   const root = repoRoot(dir);
   let link = null;
   let local = null;
+  let extra = null;
+  let home = root;
   for (const d of upToRoot(dir, root)) {
     link ??= ((j) => (j && typeof j.project === "string" ? j : null))(readJson(join(d, ".agentorb.json")));
-    local ??= ((j) => (j && typeof j.key === "string" && j.key.trim().startsWith("ssk_") ? j.key.trim() : null))(readJson(join(d, ".agentorb.local.json")));
+    if (!local) {
+      const j = readJson(join(d, ".agentorb.local.json"));
+      if (j && typeof j.key === "string" && j.key.trim().startsWith("ssk_")) {
+        local = j.key.trim();
+        // 0057: the agent's role and its page, as /agentorb:init (or session start) last set the folder up.
+        extra = { role: typeof j.role === "string" ? j.role : null, page: typeof j.page === "string" ? j.page : null };
+        home = d;
+      }
+    }
   }
   const env = process.env.AGENTORB_KEY?.trim() || null;
   const key = local ?? env;
-  return { root, link, key, keySource: local ? "repo" : env ? "env" : null };
+  return { root, link, key, keySource: local ? "repo" : env ? "env" : null, role: extra?.role ?? null, page: extra?.page ?? null, localDir: local ? home : null };
 }
 
 export const serverUrl = (link) => (process.env.AGENTORB_URL?.trim() || (link?.url ? `${String(link.url).replace(/\/$/, "")}/api/mcp` : "https://app.agent-orb.com/api/mcp")).replace(/\/$/, "");

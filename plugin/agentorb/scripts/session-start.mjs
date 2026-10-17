@@ -10,7 +10,12 @@
  * failure prints one short line and exits 0: a board outage must not block a session.
  */
 import { execSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync as readFile, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { keyIn, markLive, reachOf, sameAgentElsewhere, serverUrl, session, strayServers, worktreeOf } from "./config.mjs";
+import { setUpForRole } from "./role-setup.mjs";
 
 const out = (s) => process.stdout.write(s + "\n");
 const me = session();
@@ -102,6 +107,36 @@ void call("report_reach", reachOf());
 const meAgent = p.key?.agent ?? p.agent?.name ?? p.key?.name ?? "an agent";
 lines.push(`# AgentOrb (${p.workspace?.name ?? "your workspace"}; you are "${meAgent}"${me.keySource === "env" ? ", from AGENTORB_KEY: the same agent as every repo without its own key" : ""})`);
 const pinnedProject = pin ? (p.projects ?? []).find((x) => x.project === pin.project) : undefined;
+
+// 0057: the agent's role. Changed in Settings since this folder was set up: set it up again.
+const pack = p.key?.role;
+if (pack?.key && pack.key !== me.role && me.localDir && pin?.project) {
+  try {
+    const r = setUpForRole(me.root, pack, pin.project);
+    const f = join(me.localDir, ".agentorb.local.json");
+    const j = JSON.parse(readFile(f, "utf8"));
+    writeFileSync(f, JSON.stringify({ ...j, role: pack.key }, null, 2) + "\n", { mode: 0o600 });
+    warnings.push(`Your role changed to ${pack.label}; this folder is set up for it now${r?.note ? ` (${r.note})` : ""}. Restart Claude Code for the new context and limits.`);
+  } catch {
+    /* best effort */
+  }
+}
+if (pack?.key) lines.push(`Your role: ${pack.label}.${pack.grounding ? " Every draft part cites its sources (files, commits, cards, links); the board refuses parts without." : ""} Pick up cards on your tracks; others only when asked or assigned.`);
+// The context pack must have loaded: a missing file means the agent would work blind, so autopilot stays off.
+const pin2 = join(me.root, "AGENTORB.md");
+const blind = join(homedir(), ".claude", "agentorb", "blind", `${createHash("sha256").update(me.root).digest("hex").slice(0, 16)}`);
+if (existsSync(pin2)) {
+  const missing = readFile(pin2, "utf8").split(/\r?\n/).filter((l) => l.startsWith("@")).map((l) => l.slice(1).trim()).filter((f) => !existsSync(f));
+  if (missing.length) {
+    warnings.push(`Your context pack is missing ${missing.length} file${missing.length === 1 ? "" : "s"} (${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ", …" : ""}): the code folder moved or files were renamed. Autopilot is off for this session; don't write about the project until it's fixed (run /agentorb:init again, or tell the person).`);
+    try {
+      mkdirSync(join(homedir(), ".claude", "agentorb", "blind"), { recursive: true });
+      writeFileSync(blind, new Date().toISOString());
+    } catch {
+      /* best effort */
+    }
+  } else rmSync(blind, { force: true });
+}
 if (pinnedProject) {
   lines.push(`This repo is the project "${pinnedProject.name}" (slug ${pinnedProject.project}, from .agentorb.json). Use that slug with the agentorb tools.`);
 } else if (pin) {
@@ -140,6 +175,13 @@ if (news.json) {
   if (n.you?.state && n.you.state !== "idle" && n.you.state !== "offline") lines.push(`Your status line still says ${n.you.state}${n.you.note ? ` (“${n.you.note}”)` : ""}: set_status when that changes.`);
 } else if (news.text) {
   lines.push(news.text.slice(0, 1500));
+}
+// 0057: the role's page from the board (the owner's voice, rules, what to escalate), printed into context.
+const pageSlug = me.page || (pack?.page ? String(pack.page).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : null);
+if (pageSlug && pinnedProject) {
+  const pg = await call("get_page", { project: pinnedProject.project, page: pageSlug });
+  const body = pg.json?.body ?? (typeof pg.text === "string" ? pg.text : "");
+  if (body && !pg.error) lines.push(`## ${pg.json?.title ?? pack?.page ?? "Your page"} (the owner's, from the board: follow it)\n${String(body).slice(0, 8000)}`);
 }
 if (here.json?.agents?.length) {
   const a = here.json.agents.filter((x) => x.presence !== "offline" && x.id !== here.json.you).slice(0, 8);

@@ -40,6 +40,10 @@ A card body is at most 120 words (the project may set fewer; the tool refuses lo
 - `set_status` idle with a note of what is left. `release_task` or `hand_off` anything you hold.
 - Commit, PR and deploy facts belong in a note on the card ("shipped in abc123 on main"), not in the title.
 
+## Your role
+
+Session start says your role. Pick up cards on your own tracks; take others only when a person or another agent asks you (claim_task warns when a card is outside your role and names who works it). Writing roles (Writer, Marketer, Support): every draft part cites where its facts come from (`sources`: links, or `ref` to a repo file, commit, card or page). The board refuses a part without one; when the facts aren't in your context or the repo history, ask on the card instead of guessing. The role's page on the board (Voice, Support rules...) is printed at session start: follow it.
+
 ## Long work: resume, not restart
 
 On a card that takes many steps, call `checkpoint` after each step that would hurt to redo (step N of M, what's done and where, what's next). If your run dies, the next run on the card (yours or another agent's) gets it back from `claim_task` as `resume`: check `resume.done` holds, then start at `resume.next`.

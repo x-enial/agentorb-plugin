@@ -33,6 +33,15 @@ markLive(me.root, input.session_id);
 // Keep this session's mark on its agent fresh (session start warns when another session acts as the same agent).
 sameAgentElsewhere(key, input.session_id, me.root);
 if (input.stop_hook_active) process.exit(0);
+// 0057: a context pack that didn't load (session start found files missing) means no autopilot this session.
+try {
+  const { createHash } = await import("node:crypto");
+  const { homedir } = await import("node:os");
+  const { existsSync } = await import("node:fs");
+  if (existsSync(join(homedir(), ".claude", "agentorb", "blind", createHash("sha256").update(me.root).digest("hex").slice(0, 16)))) process.exit(0);
+} catch {
+  /* carry on */
+}
 
 const dir = process.env.CLAUDE_PLUGIN_DATA || join(tmpdir(), "agentorb");
 const counter = join(dir, `autopilot-${String(input.session_id || "session").replace(/[^a-z0-9-]/gi, "")}.json`);

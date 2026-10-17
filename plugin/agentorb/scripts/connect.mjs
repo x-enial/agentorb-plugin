@@ -12,6 +12,12 @@ import { chmodSync, existsSync, readFileSync, writeFileSync, appendFileSync } fr
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
 import { serverUrl, session, strayServers } from "./config.mjs";
+import { setUpForRole } from "./role-setup.mjs";
+
+const codeArg = () => {
+  const i = process.argv.indexOf("--code");
+  return i > 0 ? process.argv[i + 1] : undefined;
+};
 
 const me = session();
 const site = serverUrl(me.link).replace(/\/api\/mcp$/, "");
@@ -77,9 +83,9 @@ if (answer.status !== "approved") {
   process.exit(3);
 }
 
-// The key: the repo's own git-ignored file, readable only by you.
+// The key: the repo's own git-ignored file, readable only by you; with the agent's role (0057) for session start.
 const localFile = join(me.root, ".agentorb.local.json");
-writeFileSync(localFile, JSON.stringify({ key: answer.key }, null, 2) + "\n", { mode: 0o600 });
+writeFileSync(localFile, JSON.stringify({ key: answer.key, ...(answer.role ? { role: answer.role.key } : {}), ...(answer.page ? { page: answer.page.slug } : {}) }, null, 2) + "\n", { mode: 0o600 });
 chmodSync(localFile, 0o600);
 const ignore = join(me.root, ".gitignore");
 const ignored = existsSync(ignore) && readFileSync(ignore, "utf8").split(/\r?\n/).some((l) => l.trim() === ".agentorb.local.json");
@@ -92,8 +98,12 @@ if (answer.project) {
   if (!had || JSON.parse(had || "{}").project !== link.project) writeFileSync(linkFile, JSON.stringify(link, null, 2) + "\n");
 }
 
+const pack = answer.role ? setUpForRole(me.root, answer.role, answer.project?.slug, codeArg()) : null;
+
 say(`Connected: ${basename(me.root)} is now "${answer.agent.name}" on ${answer.project ? `the ${answer.project.name} board` : "your board"} (${answer.workspace.name}).`);
 say("The key is in .agentorb.local.json (git-ignored, readable only by you); .agentorb.json names the board.");
+if (answer.role) say(`Role: ${answer.role.label}.${answer.page ? ` Its ${answer.page.title} page on the board is printed into every session.` : ""}`);
+if (pack?.note) say(pack.note);
 if (answer.replaced) {
   const r = answer.replaced;
   say(`${r.name}'s ${r.cards} open card${r.cards === 1 ? "" : "s"} and ${r.routines} routine${r.routines === 1 ? "" : "s"} here moved to it; messages to ${r.name} reach it too.${r.retired ? ` ${r.name} is retired.` : ""}`);
@@ -111,3 +121,4 @@ if (answer.replaced) {
 }
 for (const x of strayServers(me.root)) say(`This repo also has an AgentOrb MCP server set up by hand ("${x.name}", ${x.scope} scope) with an older key: it would still act as that agent. Remove it with: ${x.remove}`);
 say("Restart Claude Code in this repo (or /mcp, then reconnect agentorb) so the connection uses the new agent.");
+
