@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { markLive, serverUrl, session } from "./config.mjs";
+import { markLive, sameAgentElsewhere, serverUrl, session } from "./config.mjs";
 
 const me = session();
 const key = me.key;
@@ -30,6 +30,8 @@ try {
   /* no stdin */
 }
 markLive(me.root, input.session_id);
+// Keep this session's mark on its agent fresh (session start warns when another session acts as the same agent).
+sameAgentElsewhere(key, input.session_id, me.root);
 if (input.stop_hook_active) process.exit(0);
 
 const dir = process.env.CLAUDE_PLUGIN_DATA || join(tmpdir(), "agentorb");

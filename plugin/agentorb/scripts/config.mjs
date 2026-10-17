@@ -11,7 +11,7 @@
  * Never prints the key.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -104,6 +104,28 @@ export function session() {
 
 export const serverUrl = (link) => (process.env.AGENTORB_URL?.trim() || (link?.url ? `${String(link.url).replace(/\/$/, "")}/api/mcp` : "https://app.agent-orb.com/api/mcp")).replace(/\/$/, "");
 
+/**
+ * Is this repo a linked git worktree (a second checkout made with `git worktree add`)? Then `main` is the main
+ * checkout's folder. Each worktree is its own folder, so it can be its own agent (its own .agentorb.local.json).
+ */
+export function worktreeOf(root) {
+  try {
+    const q = (arg) => execFileSync("git", ["-C", root, "rev-parse", "--path-format=absolute", arg], { stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).toString().trim();
+    const gitDir = q("--git-dir");
+    const common = q("--git-common-dir");
+    if (!gitDir || !common || resolve(gitDir) === resolve(common)) return { linked: false, main: null };
+    return { linked: true, main: common.endsWith(".git") ? dirname(common) : null };
+  } catch {
+    return { linked: false, main: null };
+  }
+}
+
+/** The key in a folder's .agentorb.local.json, or null. */
+export function keyIn(dir) {
+  const j = readJson(join(dir, ".agentorb.local.json"));
+  return j && typeof j.key === "string" && j.key.trim().startsWith("ssk_") ? j.key.trim() : null;
+}
+
 /* ---- the live-session marker: the runner doesn't start a run in a repo where you have a session open */
 
 const SESSIONS = join(homedir(), ".claude", "agentorb", "sessions");
@@ -120,12 +142,47 @@ export function markLive(root, sessionId) {
     /* best effort */
   }
 }
-export function clearLive(root) {
+export function clearLive(root, key, sessionId) {
   if (process.env.AGENTORB_HEADLESS) return;
   try {
     rmSync(markerOf(root), { force: true });
+    if (key && sessionId) rmSync(join(agentDir(key), `${safeName(sessionId)}.json`), { force: true });
   } catch {
     /* best effort */
+  }
+}
+
+/* ---- one agent, two sessions: each session here marks the agent (by its key's hash) it acts as */
+
+const AGENTS = join(homedir(), ".claude", "agentorb", "agents");
+const agentDir = (key) => join(AGENTS, createHash("sha256").update(key).digest("hex").slice(0, 16));
+const safeName = (s) => String(s).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 80) || "session";
+
+/**
+ * Mark this session as acting with `key`, and say which other open sessions (seen in the last LIVE_MS) act with the
+ * same key: those are the same agent on the board (one status line, one set of claims), which is never what you want.
+ * Returns their folders. Only sees sessions on this machine.
+ */
+export function sameAgentElsewhere(key, sessionId, root) {
+  if (!key || !sessionId || process.env.AGENTORB_HEADLESS) return [];
+  try {
+    const dir = agentDir(key);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${safeName(sessionId)}.json`), JSON.stringify({ root, at: new Date().toISOString() }));
+    const others = [];
+    for (const f of readdirSync(dir)) {
+      if (f === `${safeName(sessionId)}.json`) continue;
+      const path = join(dir, f);
+      if (Date.now() - statSync(path).mtimeMs > LIVE_MS) {
+        rmSync(path, { force: true });
+        continue;
+      }
+      const j = readJson(path);
+      if (j?.root) others.push(j.root);
+    }
+    return others;
+  } catch {
+    return [];
   }
 }
 /** Is an interactive session open in this repo (seen in the last LIVE_MS)? */

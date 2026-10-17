@@ -10,7 +10,7 @@
  * failure prints one short line and exits 0: a board outage must not block a session.
  */
 import { execSync } from "node:child_process";
-import { markLive, serverUrl, session } from "./config.mjs";
+import { keyIn, markLive, sameAgentElsewhere, serverUrl, session, worktreeOf } from "./config.mjs";
 
 const out = (s) => process.stdout.write(s + "\n");
 const me = session();
@@ -33,6 +33,20 @@ if (!key) {
   process.exit(0);
 }
 markLive(me.root, input.session_id);
+
+// A second worktree acts as its own agent only with its own key: say so when it doesn't have one.
+const wt = worktreeOf(me.root);
+const mainKey = wt.linked && wt.main ? keyIn(wt.main) : null;
+const warnings = [];
+if (wt.linked && me.keySource !== "repo") {
+  warnings.push(`This is a second worktree of ${wt.main ?? "this repo"} with no agent of its own: it acts as the AGENTORB_KEY agent. Run /agentorb:init to give it one (a new agent, named for its role).`);
+} else if (wt.linked && mainKey && mainKey === key) {
+  warnings.push(`This worktree's .agentorb.local.json has the same key as ${wt.main}: both are one agent on the board (one status line, one set of claims). Run /agentorb:init here to give this worktree its own agent.`);
+}
+const twins = sameAgentElsewhere(key, input.session_id, me.root);
+if (twins.length) {
+  warnings.push(`Another open session acts as this same agent (${[...new Set(twins)].join(", ")}). Two sessions on one key share a status line and claims and can't message each other. Give each session its own agent: a git worktree per session, each with its own key (/agentorb:init there).`);
+}
 
 let id = 1;
 async function call(name, args = {}) {
@@ -76,6 +90,7 @@ const r = repo();
 const projects = await call("list_projects", r ? { repo: r } : {});
 if (projects.error) {
   out(`AgentOrb: couldn't reach the board (${projects.error}). Carry on; try the agentorb MCP tools later.`);
+  for (const w of warnings) out(`WARNING: ${w} Tell the person this first.`);
   process.exit(0);
 }
 const p = projects.json ?? {};
@@ -123,5 +138,6 @@ if (here.json?.agents?.length) {
   const a = here.json.agents.filter((x) => x.presence !== "offline" && x.id !== here.json.you).slice(0, 8);
   if (a.length) lines.push(`Here now: ${a.map((x) => `${x.name} (${x.state}${x.task?.title ? `: ${x.task.title}` : ""}${x.note ? `, “${x.note}”` : ""})`).join("; ")}.`);
 }
+for (const w of warnings) lines.push(`WARNING: ${w} Tell the person this first.`);
 lines.push("Rules: claim_task before working a task, set_status when you start/finish/block, set_card_status (needs-you, with why) for anything that needs a go, and keep the card current. Keys, secrets and customer data never go on the board.");
 out(lines.join("\n"));
