@@ -17,7 +17,8 @@ MAX="${AGENTORB_RUN_MAX:-1}"
 MODE="${AGENTORB_RUN_MODE:-work}"   # work: a due routine, else the next task; think: follow up and propose ideas; routine: only a due routine
 # The job's cadence in seconds, for the board's rings (LATE when missed). Set it to match your timer; think runs are uneven, so leave it unset for those.
 export AGENTORB_RUN_EVERY="${AGENTORB_RUN_EVERY:-$([ "$MODE" = "work" ] && echo 1800 || echo "")}"
-TOOLS="${AGENTORB_RUN_TOOLS:-mcp__agentorb__*,Read,Grep,Glob,Edit,Write,Bash(git *),Bash(npm test*),Bash(npm run test*)}"
+# The plugin's own connection names its tools mcp__plugin_agentorb_agentorb__*; mcp__agentorb__* is a server added by hand.
+TOOLS="${AGENTORB_RUN_TOOLS:-mcp__plugin_agentorb_agentorb__*,mcp__agentorb__*,Read,Grep,Glob,Edit,Write,Bash(git *),Bash(npm test*),Bash(npm run test*)}"
 MINUTES="${AGENTORB_RUN_MINUTES:-20}"
 LOCK="${TMPDIR:-/tmp}/agentorb-run-$(pwd | tr -c 'a-zA-Z0-9' '_').lock"
 
