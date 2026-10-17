@@ -7,7 +7,7 @@
       "name": "agentorb",
       "source": "./plugin/agentorb",
       "description": "Connect Claude Code to your AgentOrb board: the MCP server, a session-start briefing, the /agentorb:board command and the working rules.",
-      "version": "0.11.0",
+      "version": "0.12.0",
       "category": "productivity",
       "keywords": ["agentorb", "board", "mcp", "agents"]
     }
