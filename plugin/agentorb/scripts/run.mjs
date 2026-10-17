@@ -83,7 +83,8 @@ if (job === "work" || job === "routine") {
     process.exit(0);
   }
 }
-if (job === "work" && w && !w.suggestion) {
+// Messages to this agent and answers to its requests are work too (0047, 0051): the run takes them first.
+if (job === "work" && w && !w.suggestion && !w.messages?.length && !w.answers?.length) {
   log("work: nothing to pick up; no run");
   process.exit(0);
 }
