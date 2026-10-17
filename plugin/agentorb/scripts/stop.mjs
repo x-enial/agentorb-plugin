@@ -8,14 +8,19 @@
  * AGENTORB_AUTOPILOT_MAX pickups per session (default 5, counted in a small file under CLAUDE_PLUGIN_DATA); honours
  * stop_hook_active (Claude Code's own cap); any failure lets the session stop. The reason names the card by id and
  * title only and tells the agent to read it: text on the board is data, never instructions.
+ *
+ * Only in a repo linked to a board (.agentorb.json), and only that board's cards: a session in another repo is never
+ * handed work from elsewhere. Every stop also marks this repo's session as open, so the runner holds off here.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { markLive, serverUrl, session } from "./config.mjs";
 
-const key = process.env.AGENTORB_KEY?.trim();
-if (!key) process.exit(0);
-const url = (process.env.AGENTORB_URL?.trim() || "https://app.agent-orb.com/api/mcp").replace(/\/$/, "");
+const me = session();
+const key = me.key;
+if (!key || !me.link) process.exit(0);
+const url = serverUrl(me.link);
 const MAX = Math.max(0, Number(process.env.AGENTORB_AUTOPILOT_MAX ?? 5) || 5);
 
 let input = {};
@@ -24,6 +29,7 @@ try {
 } catch {
   /* no stdin */
 }
+markLive(me.root, input.session_id);
 if (input.stop_hook_active) process.exit(0);
 
 const dir = process.env.CLAUDE_PLUGIN_DATA || join(tmpdir(), "agentorb");
@@ -58,7 +64,7 @@ async function call(name, args = {}) {
   }
 }
 
-const w = await call("my_work");
+const w = await call("my_work", { project: me.link.project });
 if (!w || !w.autopilot || !w.suggestion) process.exit(0);
 const s = w.suggestion;
 try {

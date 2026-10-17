@@ -8,9 +8,12 @@
  *   node run.mjs --job work|think --prompt "/agentorb:work 1" -- <claude args…>
  */
 import { spawn } from "node:child_process";
+import { liveHere, serverUrl, session } from "./config.mjs";
 
-const key = process.env.AGENTORB_KEY?.trim();
-const url = (process.env.AGENTORB_URL?.trim() || "https://app.agent-orb.com/api/mcp").replace(/\/$/, "");
+// This repo's own agent (.agentorb.local.json) or AGENTORB_KEY; this repo's board only (.agentorb.json).
+const me = session();
+const key = me.key;
+const url = serverUrl(me.link);
 const argv = process.argv.slice(2);
 const dash = argv.indexOf("--");
 const own = dash >= 0 ? argv.slice(0, dash) : argv;
@@ -25,8 +28,13 @@ const force = own.includes("--force");
 const log = (s) => process.stderr.write(`${new Date().toISOString()} ${s}\n`);
 
 if (!key) {
-  log("AGENTORB_KEY is not set");
+  log("no key: put this repo's agent key in .agentorb.local.json or export AGENTORB_KEY");
   process.exit(1);
+}
+// You're working here yourself: the board's work waits for you (no second session as the same agent).
+if (!force && liveHere(me.root)) {
+  log("you have a Claude Code session open in this repo; holding off");
+  process.exit(0);
 }
 
 let id = 1;
@@ -52,7 +60,7 @@ async function call(name, args = {}) {
 }
 
 // Gate: held, or the plan past 85% (self-started work), means no run.
-const w = await call("my_work");
+const w = await call("my_work", me.link ? { project: me.link.project } : {});
 if (w?.onHold && !force) {
   log(`${job}: on hold; no run`);
   process.exit(0);
@@ -130,7 +138,8 @@ const every = Number(process.env.AGENTORB_RUN_EVERY);
 if (routine) tell({ started: true });
 else tell({ started: true, task: w?.suggestion?.id, ...(Number.isFinite(every) && every >= 60 ? { every: Math.floor(every) } : {}) });
 let told = 0;
-const child = spawn("claude", ["-p", prompt, ...rest, "--output-format", "stream-json", "--verbose"], { stdio: ["ignore", "pipe", "inherit"] });
+// AGENTORB_HEADLESS: this run's own hooks don't mark the repo as having you in it.
+const child = spawn("claude", ["-p", prompt, ...rest, "--output-format", "stream-json", "--verbose"], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, AGENTORB_HEADLESS: "1", AGENTORB_KEY: key } });
 // The routine's ring on the card is the routine's own name (routine_done keeps it); the run itself reports under "routine".
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => child.kill(sig));
 let buf = "";

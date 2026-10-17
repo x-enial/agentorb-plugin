@@ -26,4 +26,9 @@ Use the agentorb MCP tools and the file tools. Steps:
    - Never put keys, tokens, customer data or private-channel content on the board. The repo's docs are the record; the board is status and coordination.
    <!-- agentorb:end -->
    ```
-5. Say in two lines what you wrote and which project this repo now points at. Do not commit.
+5. Give this repo its own agent, so sessions here act and get notified as this repo's agent, not as every repo's:
+   - Make sure `.agentorb.local.json` is in `.gitignore` (add the line if it isn't). Never commit it.
+   - If `.agentorb.local.json` doesn't exist, create it as `{ "key": "" }`.
+   - Tell the person: in AgentOrb, Settings → Agents → Add an agent (name it for this repo, e.g. "Claude · <repo>"), copy its key, and paste it between the quotes in `.agentorb.local.json` themselves. Never ask them to paste the key into this chat, and never print or read a key back.
+   - Without that file the session uses `AGENTORB_KEY` from the environment: the same agent as every other repo without its own key.
+6. Say in three lines what you wrote, which project this repo now points at, and whether it still needs its own key. Restart Claude Code here after the key is in. Do not commit.

@@ -4,21 +4,35 @@
  * prints what the session should know: which project this repo is, what changed since the last session, who is
  * here, and what is waiting on this agent. Plain stdout goes into the session's context. No model call, no cost.
  *
- * Needs AGENTORB_KEY (the agent's key from Settings → Agents). AGENTORB_URL overrides the server (self-hosted).
- * Never prints the key. Any failure prints one short line and exits 0: a board outage must not block a session.
+ * Only in a repo linked to a board (.agentorb.json, from /agentorb:init): elsewhere it prints one line and stays out
+ * of the way (no briefing, no whats_new, which would move this agent's "new since" cursor for the repo it works in).
+ * The key is this repo's own (.agentorb.local.json) or AGENTORB_KEY (see config.mjs). Never prints the key. Any
+ * failure prints one short line and exits 0: a board outage must not block a session.
  */
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { markLive, serverUrl, session } from "./config.mjs";
 
-const key = process.env.AGENTORB_KEY?.trim();
-const url = (process.env.AGENTORB_URL?.trim() || "https://app.agent-orb.com/api/mcp").replace(/\/$/, "");
 const out = (s) => process.stdout.write(s + "\n");
+const me = session();
+const key = me.key;
+const url = serverUrl(me.link);
+let input = {};
+try {
+  input = JSON.parse((await import("node:fs")).readFileSync(0, "utf8") || "{}");
+} catch {
+  /* no stdin */
+}
 
-if (!key) {
-  out("AgentOrb: no AGENTORB_KEY in the environment, so the board is off for this session. Get a key in Settings → Agents at https://app.agent-orb.com and export AGENTORB_KEY.");
+if (!me.link) {
+  // Not on a board: one line, nothing else.
+  out("AgentOrb: this repo isn't linked to a board, so no briefing or autopilot here. Run /agentorb:init to link it (and give it its own agent).");
   process.exit(0);
 }
+if (!key) {
+  out(`AgentOrb: this repo is linked to "${me.link.project}" but has no key. Make an agent for it in Settings → Agents and put its key in .agentorb.local.json ({"key": "ssk_..."}, git-ignored), or export AGENTORB_KEY.`);
+  process.exit(0);
+}
+markLive(me.root, input.session_id);
 
 let id = 1;
 async function call(name, args = {}) {
@@ -48,29 +62,6 @@ async function call(name, args = {}) {
   }
 }
 
-/** .agentorb.json at the repo root (or cwd): { project, workspace, url }, written by /agentorb:init. */
-function pinned() {
-  for (const dir of [process.cwd(), root()]) {
-    if (!dir) continue;
-    const f = join(dir, ".agentorb.json");
-    if (!existsSync(f)) continue;
-    try {
-      const j = JSON.parse(readFileSync(f, "utf8"));
-      if (j && typeof j.project === "string") return j;
-    } catch {
-      /* unreadable: ignore */
-    }
-  }
-  return null;
-}
-function root() {
-  try {
-    return execSync("git rev-parse --show-toplevel", { stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).toString().trim() || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function repo() {
   try {
     return execSync("git remote get-url origin", { stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).toString().trim() || undefined;
@@ -80,7 +71,7 @@ function repo() {
 }
 
 const lines = [];
-const pin = pinned();
+const pin = me.link;
 const r = repo();
 const projects = await call("list_projects", r ? { repo: r } : {});
 if (projects.error) {
@@ -88,7 +79,7 @@ if (projects.error) {
   process.exit(0);
 }
 const p = projects.json ?? {};
-lines.push(`# AgentOrb (${p.workspace?.name ?? "your workspace"}; you are "${p.key?.name ?? "an agent"}")`);
+lines.push(`# AgentOrb (${p.workspace?.name ?? "your workspace"}; you are "${p.key?.name ?? "an agent"}"${me.keySource === "env" ? ", from AGENTORB_KEY: the same agent as every repo without its own key" : ""})`);
 const pinnedProject = pin ? (p.projects ?? []).find((x) => x.project === pin.project) : undefined;
 if (pinnedProject) {
   lines.push(`This repo is the project "${pinnedProject.name}" (slug ${pinnedProject.project}, from .agentorb.json). Use that slug with the agentorb tools.`);
@@ -101,7 +92,8 @@ if (pinnedProject) {
   lines.push(`Projects: ${p.projects.map((x) => `${x.project}${x.kind ? ` (${x.kind})` : ""}`).join(", ")}.`);
 }
 
-const [news, here] = await Promise.all([call("whats_new", {}), call("who_is_here", {})]);
+// Only this repo's project: news from other boards belongs to the sessions working on them.
+const [news, here] = await Promise.all([call("whats_new", pinnedProject ? { project: pinnedProject.project } : {}), call("who_is_here", {})]);
 if (news.json) {
   const n = news.json;
   const forYou = Array.isArray(n.forYou) ? n.forYou : [];

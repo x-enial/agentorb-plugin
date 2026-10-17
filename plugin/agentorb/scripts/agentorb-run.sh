@@ -3,17 +3,16 @@
 # (/agentorb:work), from the repo the project tracks. Uses your Claude subscription; needs AGENTORB_KEY and the
 # agentorb plugin installed for your user. Set it up yourself on a timer, for example:
 #
-#   */30 * * * * cd /path/to/repo && AGENTORB_KEY=ssk_... bash ~/.claude/plugins/cache/agentorb/agentorb/0.2.0/scripts/agentorb-run.sh >> ~/agentorb-run.log 2>&1
+#   */30 * * * * cd /path/to/repo && bash "$(ls -d ~/.claude/plugins/cache/agentorb/agentorb/* | sort -V | tail -1)/scripts/agentorb-run.sh" >> ~/agentorb-run.log 2>&1
+#
+# The key is the repo's own (.agentorb.local.json) or AGENTORB_KEY; never put it in the crontab line.
 #
 # Safety by default: one run at a time per repo (a lock), one task per run, a 20-minute cap, and a narrow tool
 # allowlist (read, edit, git, tests). Widen it on purpose with AGENTORB_RUN_TOOLS; anything that publishes, spends or
 # releases stays a needs-you card for a person. Extra arguments are passed to `claude`.
 set -euo pipefail
 
-if [ -z "${AGENTORB_KEY:-}" ]; then
-  echo "$(date -Is) AGENTORB_KEY is not set; nothing to do" >&2
-  exit 1
-fi
+# The key: this repo's .agentorb.local.json, else AGENTORB_KEY (run.mjs checks and says so).
 MAX="${AGENTORB_RUN_MAX:-1}"
 MODE="${AGENTORB_RUN_MODE:-work}"   # work: a due routine, else the next task; think: follow up and propose ideas; routine: only a due routine
 # The job's cadence in seconds, for the board's rings (LATE when missed). Set it to match your timer; think runs are uneven, so leave it unset for those.
