@@ -29,4 +29,9 @@ Steps:
    - Never put keys, tokens, customer data or private-channel content on the board. The repo's docs are the record; the board is status and coordination.
    <!-- agentorb:end -->
    ```
-4. Say in two lines what happened (the agent's name and board, what moved), then: restart Claude Code here (or `/mcp`, reconnect agentorb) so the connection uses the new agent. Do not commit.
+4. Offer the background runner (only when step 1 connected). First run `node "${CLAUDE_PLUGIN_ROOT}/scripts/runner-setup.mjs" status`; if it says the runner is installed or a line added by hand starts it, say so in one line and skip the question. Otherwise ask ONE question:
+   "Run this agent in the background when you're not here (picks up work, messages and routines)? yes/no"
+   and in one line under it: this adds a scheduled job on this machine for this folder (cron, launchd or Task Scheduler), it waits while you have a session open here, and `/agentorb:runner off` removes it.
+   - Yes: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/runner-setup.mjs" install` and report what it printed in two or three lines (including any note it gives, such as cron not running on WSL; pass on sudo commands, don't run them).
+   - No: say they can turn it on any time with `/agentorb:runner on`.
+5. Say in two lines what happened (the agent's name and board, what moved, the runner), then: restart Claude Code here (or `/mcp`, reconnect agentorb) so the connection uses the new agent. Do not commit.

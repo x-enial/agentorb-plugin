@@ -7,8 +7,9 @@
  *
  *   cd /path/to/repo && AGENTORB_KEY=ssk_... node runner.mjs
  *
- * One runner per agent and repo. Keep it alive with your own supervisor; for cron, a watchdog line like
- *   * * * * * cd /path/to/repo && flock -n /tmp/agentorb-runner-$(basename "$PWD").lock node "$(ls -d ~/.claude/plugins/cache/agentorb/agentorb/* | sort -V | tail -1)/scripts/runner.mjs" >> ~/agentorb-runner.log 2>&1
+ * One runner per agent and repo. `runner-setup.mjs install` (/agentorb:runner on) keeps it alive for you: a crontab
+ * line on Linux and WSL, a LaunchAgent on macOS, a Task Scheduler task on Windows. By hand, a cron watchdog like
+ *   * * * * * cd /path/to/repo && flock -n /tmp/agentorb-runner-<name>.lock node "$(ls -d ~/.claude/plugins/cache/agentorb/agentorb/* | sort -V | tail -1)/scripts/runner.mjs" >> ~/agentorb-runner.log 2>&1
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
