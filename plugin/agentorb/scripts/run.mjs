@@ -9,7 +9,7 @@
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { liveHere, serverUrl, session } from "./config.mjs";
@@ -144,7 +144,17 @@ if (routine) tell({ started: true });
 else tell({ started: true, task: w?.suggestion?.id, ...(Number.isFinite(every) && every >= 60 ? { every: Math.floor(every) } : {}) });
 let told = 0;
 // AGENTORB_HEADLESS: this run's own hooks don't mark the repo as having you in it.
-const child = spawn("claude", ["-p", prompt, ...rest, "--output-format", "stream-json", "--verbose"], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, AGENTORB_HEADLESS: "1", AGENTORB_KEY: key } });
+// The folder's read-only code folders (0057 role setup writes them as additionalDirectories): passed explicitly, since
+// project settings that grant access only apply once a folder is trusted. Its deny rules apply regardless.
+const addDirs = (() => {
+  try {
+    const j = JSON.parse(readFileSync(join(process.cwd(), ".claude", "settings.json"), "utf8"));
+    return (j.permissions?.additionalDirectories ?? []).filter((d) => typeof d === "string").flatMap((d) => ["--add-dir", d]);
+  } catch {
+    return [];
+  }
+})();
+const child = spawn("claude", ["-p", prompt, ...rest, ...addDirs, "--output-format", "stream-json", "--verbose"], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, AGENTORB_HEADLESS: "1", AGENTORB_KEY: key } });
 // The routine's ring on the card is the routine's own name (routine_done keeps it); the run itself reports under "routine".
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => child.kill(sig));
 let buf = "";
