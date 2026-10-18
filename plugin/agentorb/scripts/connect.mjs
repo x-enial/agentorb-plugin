@@ -106,7 +106,7 @@ if (answer.role) say(`Role: ${answer.role.label}.${answer.page ? ` Its ${answer.
 if (pack?.note) say(pack.note);
 if (answer.replaced) {
   const r = answer.replaced;
-  say(`${r.name}'s ${r.cards} open card${r.cards === 1 ? "" : "s"} and ${r.routines} routine${r.routines === 1 ? "" : "s"} here moved to it; messages to ${r.name} reach it too.${r.retired ? ` ${r.name} is retired.` : ""}`);
+  say(`${r.name}'s ${r.cards} open card${r.cards === 1 ? "" : "s"} on its tracks and ${r.routines} routine${r.routines === 1 ? "" : "s"} moved to it; messages to ${r.name} reach it too.${r.rerouted ? ` ${r.rerouted} card${r.rerouted === 1 ? "" : "s"} outside its role went to the agents whose roles cover them.` : ""}${r.unassigned ? ` ${r.unassigned} card${r.unassigned === 1 ? "" : "s"} outside its role ${r.unassigned === 1 ? "is" : "are"} unassigned (no agent's role covers ${r.unassigned === 1 ? "its track" : "their tracks"}): assign ${r.unassigned === 1 ? "it" : "them"} on the board.` : ""}${r.retired ? ` ${r.name} is retired.` : ""}`);
   // A retired key left in the shell would only fail now: point at the lines, so they can come out.
   if (r.retired && me.keySource === "env") {
     const spots = [join(homedir(), ".bashrc"), join(homedir(), ".zshrc"), join(homedir(), ".profile"), join(homedir(), ".config", "agentorb", "env")].flatMap((f) => {
