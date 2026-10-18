@@ -16,3 +16,4 @@ Then report what it printed in a few lines, in plain words. It never prints the 
 - If it says the folder has no key of its own, the next step is `/agentorb:init`.
 - On WSL, if it says cron isn't running, pass on the command it gives (it needs sudo; don't run it yourself).
 - The runner waits while a Claude Code session is open in this folder, so it won't start work beside you.
+- No runner (status says so) and they want it working only while this window is open: the stopgap is `/loop 15m check the AgentOrb board (whats_new with loop "15m") and handle anything for <agent name>`. It stops when the window closes; the board shows "Loop on" while it runs.

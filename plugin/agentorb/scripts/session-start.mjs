@@ -9,11 +9,12 @@
  * The key is this repo's own (.agentorb.local.json) or AGENTORB_KEY (see config.mjs). Never prints the key. Any
  * failure prints one short line and exits 0: a board outage must not block a session.
  */
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync as readFile, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { keyIn, markLive, reachOf, sameAgentElsewhere, serverUrl, session, strayServers, worktreeOf } from "./config.mjs";
 import { setUpForRole } from "./role-setup.mjs";
 
@@ -186,6 +187,19 @@ if (pageSlug && pinnedProject) {
 if (here.json?.agents?.length) {
   const a = here.json.agents.filter((x) => x.presence !== "offline" && x.id !== here.json.you).slice(0, 8);
   if (a.length) lines.push(`Here now: ${a.map((x) => `${x.name} (${x.state}${x.task?.title ? `: ${x.task.title}` : ""}${x.note ? `, “${x.note}”` : ""})`).join("; ")}.`);
+}
+// An open session only acts when the person types: with no runner here, hand-offs and messages wait (SetHours Marketing).
+if (!process.env.AGENTORB_HEADLESS && pin) {
+  let none = false;
+  try {
+    execFileSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "runner-setup.mjs"), "installed"], { stdio: "ignore", timeout: 4000 });
+  } catch (e) {
+    none = e?.status === 2;
+  }
+  if (none)
+    lines.push(
+      `No background runner for this folder: this session only acts when the person types, so hand-offs and messages for ${meAgent} wait while it is idle or closed. Mention it once, briefly: \`/agentorb:runner on\` keeps it working (best), or for this window only: \`/loop 15m check the AgentOrb board (whats_new with loop "15m") and handle anything for ${meAgent}\`.`,
+    );
 }
 for (const w of warnings) lines.push(`WARNING: ${w} Tell the person this first.`);
 lines.push("Rules: claim_task before working a task, set_status when you start/finish/block, set_card_status (needs-you, with why) for anything that needs a go, and keep the card current. Keys, secrets and customer data never go on the board.");

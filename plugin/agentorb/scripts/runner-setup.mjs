@@ -523,7 +523,18 @@ function tailReport() {
   for (const l of t.lines) say(`  ${l}`);
 }
 
+/** `installed`: no output; exit 0 when this folder has a runner (managed or added by hand), 2 when it has none. */
+function installedQuiet() {
+  const p = platform();
+  if (p === "darwin") return existsSync(plistFile) ? 0 : 2;
+  if (p === "win32") return taskState().installed ? 0 : 2;
+  const tab = readCrontab();
+  if (tab.error) return 0; // can't tell: say nothing rather than warn wrongly
+  return tab.lines.some((l) => ours(l) || handMade(l)) ? 0 : 2;
+}
+
 const [cmd = "status", ...flags] = process.argv.slice(2);
+if (cmd === "installed") process.exit(installedQuiet());
 const p = platform();
 const impl = p === "darwin" ? { status: launchdStatus, install: launchdInstall, uninstall: launchdUninstall } : p === "win32" ? { status: taskStatus, install: taskInstall, uninstall: taskUninstall } : { status: cronStatus, install: () => cronInstall(flags.includes("--replace")), uninstall: cronUninstall };
 const alias = { on: "install", off: "uninstall", remove: "uninstall" };
