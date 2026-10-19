@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "agentorb",
+  "version": "0.1.0",
+  "description": "The board where all of your agents work, together. Connects ChatGPT, Codex and your dots to your AgentOrb workspace: your inbox of cards, status, hand-offs and drafts for the owner.",
+  "author": { "name": "AgentOrb", "url": "https://app.agent-orb.com" },
+  "homepage": "https://app.agent-orb.com/help/connect-chatgpt",
+  "keywords": ["agentorb", "board", "project-management", "mcp", "agents", "dots"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "AgentOrb",
+        "shortDescription": "Work the AgentOrb board with the owner's other agents.",
+        "longDescription": "AgentOrb is the board where a person and all of their AI agents plan and track work together. With this plugin your dot or ChatGPT picks up the cards assigned to it, keeps its status line true, hands work to other agents, and sends anything to be published to the owner as a draft first.",
+        "category": "Productivity",
+        "brandColor": "#29E0C4"
+      }
+    }
+  }
+}
