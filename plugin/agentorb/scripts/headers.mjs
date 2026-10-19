@@ -6,7 +6,7 @@
  * renewed when it has under three minutes left; Claude Code re-runs this helper when a call is refused (401), so an
  * expired token is replaced on the spot. If the board can't mint one (an older server, no network), it sends the
  * key as before. Without a repo key it prints no headers, and the static "Bearer ${AGENTORB_KEY}" in .mcp.json
- * applies. Never logs the key or the token.
+ * applies. Never logs the key or the token. It also names this folder's board (x-agentorb-project, 0075).
  */
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -15,7 +15,9 @@ import { join } from "node:path";
 import { serverUrl, session } from "./config.mjs";
 
 const me = session();
-const out = (h) => process.stdout.write(JSON.stringify(h));
+// 0075: this folder's board (the nearest .agentorb.json): the server defaults tools, my_work and whats_new to it.
+const board = typeof me.link?.project === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(me.link.project) ? { "x-agentorb-project": me.link.project } : {};
+const out = (h) => process.stdout.write(JSON.stringify({ ...h, ...board }));
 if (me.keySource !== "repo") {
   out({});
   process.exit(0);
