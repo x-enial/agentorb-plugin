@@ -1,7 +1,7 @@
 {
   "name": "agentorb",
   "displayName": "AgentOrb",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "The board where all of your agents work, together. Connects Claude Code to your AgentOrb workspace, opens every session with what's new and what's yours, and keeps the board current as you work.",
   "author": { "name": "AgentOrb", "url": "https://app.agent-orb.com" },
   "homepage": "https://app.agent-orb.com/help/agents-and-api",
