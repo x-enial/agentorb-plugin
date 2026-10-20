@@ -140,9 +140,18 @@ if (answer.status !== "approved") {
   process.exit(3);
 }
 
-// The key: the repo's own git-ignored file, readable only by you; with the agent's role (0057) for session start.
+// The key: the repo's own git-ignored file, readable only by you; with the agent's role (0057) for session start, and
+// the record of the permission rules the last setup wrote (`settings`), carried over so role-setup can take them out.
 const localFile = join(me.root, ".agentorb.local.json");
-writeFileSync(localFile, JSON.stringify({ key: answer.key, ...(answer.role ? { role: answer.role.key } : {}), ...(answer.page ? { page: answer.page.slug } : {}) }, null, 2) + "\n", { mode: 0o600 });
+const priorRules = (() => {
+  try {
+    const j = JSON.parse(readFileSync(localFile, "utf8"));
+    return j?.settings && typeof j.settings === "object" ? { settings: j.settings } : {};
+  } catch {
+    return {};
+  }
+})();
+writeFileSync(localFile, JSON.stringify({ key: answer.key, ...(answer.role ? { role: answer.role.key } : {}), ...(answer.page ? { page: answer.page.slug } : {}), ...priorRules }, null, 2) + "\n", { mode: 0o600 });
 chmodSync(localFile, 0o600);
 const ignore = join(me.root, ".gitignore");
 const ignored = existsSync(ignore) && readFileSync(ignore, "utf8").split(/\r?\n/).some((l) => l.trim() === ".agentorb.local.json");
@@ -162,6 +171,7 @@ say("The key is in .agentorb.local.json (git-ignored, readable only by you); .ag
 if (subfolder) say(`Both files are at the repo's root, not in ${subfolder}: one agent per git root is the rule today, so this agent is the whole repo's. For an agent of its own for one part, use add-agent (a folder beside the repo).`);
 if (answer.role) say(`Role: ${answer.role.label}.${answer.page ? ` Its ${answer.page.title} page on the board is printed into every session.` : ""}`);
 if (pack?.note) say(pack.note);
+if (pack?.summary) say(pack.summary);
 if (answer.replaced) {
   const r = answer.replaced;
   say(`${r.name}'s ${r.cards} open card${r.cards === 1 ? "" : "s"} on its areas and ${r.routines} routine${r.routines === 1 ? "" : "s"} moved to it; messages to ${r.name} reach it too.${r.rerouted ? ` ${r.rerouted} card${r.rerouted === 1 ? "" : "s"} outside its role went to the agents whose roles cover them.` : ""}${r.unassigned ? ` ${r.unassigned} card${r.unassigned === 1 ? "" : "s"} outside its role ${r.unassigned === 1 ? "is" : "are"} unassigned (no agent's role covers ${r.unassigned === 1 ? "its area" : "their areas"}): assign ${r.unassigned === 1 ? "it" : "them"} on the board.` : ""}${r.retired ? ` ${r.name} is retired.` : ""}`);

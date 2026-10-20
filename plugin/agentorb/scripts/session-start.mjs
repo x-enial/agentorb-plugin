@@ -121,11 +121,12 @@ const pinnedProject = pin ? (p.projects ?? []).find((x) => x.project === pin.pro
 const pack = p.key?.role;
 if (pack?.key && pack.key !== me.role && me.localDir && pin?.project) {
   try {
-    const r = setUpForRole(me.root, pack, pin.project);
     const f = join(me.localDir, ".agentorb.local.json");
+    // The old role's permission rules come out and the new role's go in (role-setup keeps the list in f under `settings`).
+    const r = setUpForRole(me.root, pack, pin.project, undefined, f);
     const j = JSON.parse(readFile(f, "utf8"));
     writeFileSync(f, JSON.stringify({ ...j, role: pack.key }, null, 2) + "\n", { mode: 0o600 });
-    warnings.push(`Your role changed to ${pack.label}; this folder is set up for it now${r?.note ? ` (${r.note})` : ""}. Restart Claude Code for the new context and limits.`);
+    warnings.push(`Your role changed to ${pack.label}; this folder is set up for it now${r?.note ? ` (${r.note})` : ""}. Restart Claude Code for the new context and limits.${r?.summary ? `\n${r.summary}` : ""}`);
   } catch {
     /* best effort */
   }
