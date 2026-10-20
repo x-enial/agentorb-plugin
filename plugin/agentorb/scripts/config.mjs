@@ -112,7 +112,34 @@ export function session() {
   return { root, link, key, keySource: local ? "repo" : env ? "env" : null, role: extra?.role ?? null, page: extra?.page ?? null, localDir: local ? home : null };
 }
 
-export const serverUrl = (link) => (process.env.AGENTORB_URL?.trim() || (link?.url ? `${String(link.url).replace(/\/$/, "")}/api/mcp` : "https://app.agent-orb.com/api/mcp")).replace(/\/$/, "");
+/**
+ * Where calls (and the key) go. AGENTORB_URL from your own environment wins; else the repo's .agentorb.json url, but
+ * only an AgentOrb host over https: a committed file must never be able to send a key somewhere else (a cloned repo
+ * could say anything). Anything else is ignored with a warning, and the canonical server is used.
+ */
+const CANONICAL = "https://app.agent-orb.com";
+const ownHost = (u) => {
+  try {
+    const x = new URL(u);
+    return x.protocol === "https:" && /(^|\.)agent-orb\.com$/i.test(x.hostname);
+  } catch {
+    return false;
+  }
+};
+let warnedUrl = null;
+export const serverUrl = (link) => {
+  const env = process.env.AGENTORB_URL?.trim();
+  if (env) return env.replace(/\/$/, "");
+  if (link?.url) {
+    const u = String(link.url).replace(/\/$/, "");
+    if (ownHost(u)) return `${u}/api/mcp`;
+    if (warnedUrl !== u) {
+      warnedUrl = u;
+      console.error(`agentorb: ignoring url ${u} from .agentorb.json (not an agent-orb.com host): the key goes only to AgentOrb. Set AGENTORB_URL yourself to use another server.`);
+    }
+  }
+  return `${CANONICAL}/api/mcp`;
+};
 
 /**
  * Is this repo a linked git worktree (a second checkout made with `git worktree add`)? Then `main` is the main
