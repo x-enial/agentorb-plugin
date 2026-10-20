@@ -13,7 +13,7 @@ Steps:
    The script writes the agent's key into `.agentorb.local.json` (git-ignored, mode 600) and the board into `.agentorb.json`. Never open, print or read back `.agentorb.local.json`: the key stays out of this chat.
    - Exit 2: they turned it down; stop. Exit 3: it expired; offer to run it again. Exit 1: say what it printed.
    - Exit 4: the link was approved from another network; the output says by whom and into which workspace. Show that to the person and ask whether it was them. Only on a clear yes, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/connect.mjs" --accept`; otherwise say someone else may have the link and offer a new one. Never accept on your own.
-   - In a second git worktree this gives the worktree its own agent (approve it as a new agent named for its job); never copy the main checkout's `.agentorb.local.json`.
+   - In a second git worktree this gives the worktree its own agent (approve it as a new agent named for its job); never copy the main checkout's `.agentorb.local.json`. To add another agent to a repo that already has one, `/agentorb:add-agent` from the main repo makes its folder beside it (`<repo>-agents/<role>/`) and does this for it.
 2. If the output says the shell still sets `AGENTORB_KEY` to a retired key and names the lines, offer to remove those lines (show them first, edit only with a yes). Don't touch them otherwise.
 3. In the repo's `CLAUDE.md` (create it if missing), put this section between the markers, replacing any existing one between the same markers. Use the board slug and workspace from `.agentorb.json`:
    ```

@@ -78,7 +78,7 @@ if (process.argv.includes("--accept")) {
   answer = await post("/api/connect/poll", { secret: p.secret, accept: true }).catch(() => ({ status: "expired" }));
 } else {
   try {
-    start = await post("/api/connect/start", { repo: remote, folder: basename(me.root), host: hostname(), project: me.link?.project, vendor: process.env.AGENTORB_VENDOR || "claude-code", keySource: me.keySource ?? undefined }, me.key);
+    start = await post("/api/connect/start", { repo: remote, folder: basename(me.root), host: hostname(), project: me.link?.project, vendor: process.env.AGENTORB_VENDOR || "claude-code", keySource: me.keySource ?? undefined, suggestedRole: process.env.AGENTORB_SUGGEST_ROLE || undefined, suggestedName: process.env.AGENTORB_SUGGEST_NAME || undefined }, me.key);
   } catch (e) {
     say(`AgentOrb: couldn't start connecting (${e.message}).`);
     process.exit(1);

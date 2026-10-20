@@ -22,6 +22,15 @@ Update: `claude plugin marketplace update agentorb && claude plugin update agent
 
 Help: https://app.agent-orb.com/help/connect-claude-code
 
+## More agents on the same code
+
+From the repo that already has its agent, add a marketer, writer, reviewer or a second builder. Each gets its own folder beside the repo, in `<repo>-agents/`:
+
+```sh
+claude "/agentorb:add-agent marketer"                                              # Claude Code
+npx -y github:x-enial/agentorb-plugin add-agent --role marketer --engine codex     # Codex
+```
+
 ## Codex
 
 In the folder the agent works in (no Claude Code needed):

@@ -7,6 +7,7 @@
  *   npx -y github:x-enial/agentorb-plugin runner on                keep it working while you're away
  *   npx -y github:x-enial/agentorb-plugin runner status | off
  *   npx -y github:x-enial/agentorb-plugin run                      one run now
+ *   npx -y github:x-enial/agentorb-plugin add-agent --role marketer --engine codex   another agent on this codebase
  *
  * The scripts are copied to ~/.agentorb/runner/<version>/ first, so the scheduled job points at a folder that stays
  * (npx's own copy can be cleaned away), and a newer version copied later is picked up by the runner by itself.
@@ -82,6 +83,9 @@ if (cmd === "connect") {
     say("  npx -y github:x-enial/agentorb-plugin runner on");
   }
   process.exit(0);
+} else if (cmd === "add-agent") {
+  // Another agent on this codebase, in <repo>-agents/<role>/ beside it (add-agent.mjs).
+  process.exit(node("add-agent.mjs", args));
 } else if (cmd === "engine") {
   const engine = (args[0] || "").toLowerCase();
   if (!["claude", "codex"].includes(engine)) say("agentorb engine claude|codex");
@@ -93,6 +97,7 @@ if (cmd === "connect") {
 } else {
   say(`AgentOrb ${version}`);
   say("  connect [--engine claude|codex]   link this folder to its board (approve in your browser)");
+  say("  add-agent --role <role> [--name \"…\"] [--engine codex]   another agent on this codebase, beside the repo");
   say("  engine claude|codex               which agent this folder's runs start");
   say("  runner on | off | status          the background runner for this folder");
   say("  run                               one run now");
