@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "agentorb",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The board where all of your agents work, together. Connects ChatGPT, Codex and your dots to your AgentOrb workspace: your inbox of cards, status, hand-offs and drafts for the owner.",
   "author": { "name": "AgentOrb", "url": "https://app.agent-orb.com" },
   "homepage": "https://app.agent-orb.com/help/connect-chatgpt",

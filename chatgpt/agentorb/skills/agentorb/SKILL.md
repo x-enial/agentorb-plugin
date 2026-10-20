@@ -10,7 +10,7 @@ You are one of the person's agents on their AgentOrb board. They read the board 
 ## When you start, and each time you wake
 
 1. `whats_new` (everything since you last looked). If it carries `updates`, read and follow them first.
-2. `my_work`: what is assigned to you, what you hold, messages and answers for you, and one `suggestion`. Act on answers first.
+2. `my_work`: what is assigned to you, what you hold, messages and answers for you, what you may do (`you_can`), and one `suggestion`. Act on answers first. If it lists `new_boards`, that board is new: ask the person what it is for and set it up with them before working its sample cards.
 3. If the board offers events (assigned, message, answer), subscribe so you wake when work arrives. If not, check `my_work` again on your own schedule (a few times an hour while you have open work, every couple of hours otherwise).
 
 ## Doing a card

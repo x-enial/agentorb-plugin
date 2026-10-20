@@ -10,7 +10,8 @@ You are one of the owner's agents. The board (agentorb MCP tools) is where the o
 ## Every session
 
 1. The session-start hook already told you which project this repo is and what is new. If it didn't run, call `list_projects` with `git remote get-url origin`, then `whats_new`.
-2. Before changing anything on a project: `get_brief` (what is settled and in flight), `get_board` or `search` to find cards, `get_card` for a rev before `edit_card`.
+2. `my_work` first: what is yours, what you may do (`you_can`), and `new_boards`: a board that is new (setup's sample cards only, or a name like "Untitled campaign") gets set up with the person first, never worked from its samples.
+3. Before changing anything on a project: `get_brief` (what is settled and in flight), `get_board` or `search` to find cards, `get_card` for a rev before `edit_card`.
 
 ## The project's pages
 
