@@ -10,13 +10,14 @@
  * The engine is Claude Code unless the folder says otherwise (.agentorb.json "engine", or AGENTORB_ENGINE): "codex"
  * runs `codex exec` with the same instructions (the plugin's commands/*.md, which Codex can't run as slash commands),
  * the folder's own key for AgentOrb (the run's MCP connection overrides Codex's own), and Codex's sandbox in place of
- * Claude's tool allowlist (workspace-write by default, AGENTORB_CODEX_SANDBOX to change it).
+ * Claude's tool allowlist (workspace-write by default, AGENTORB_CODEX_SANDBOX to change it). A code folder the role's
+ * settings deny Edit/Write on is not added to Codex's writable set; the prompt says it is read-only.
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { liveHere, serverUrl, session } from "./config.mjs";
 
@@ -186,16 +187,28 @@ if (routine) tell({ started: true });
 else tell({ started: true, task: w?.suggestion?.id, ...(Number.isFinite(every) && every >= 60 ? { every: Math.floor(every) } : {}) });
 let told = 0;
 // AGENTORB_HEADLESS: this run's own hooks don't mark the repo as having you in it.
-// The folder's read-only code folders (0057 role setup writes them as additionalDirectories): passed explicitly, since
-// project settings that grant access only apply once a folder is trusted. Its deny rules apply regardless.
-const addDirs = (() => {
+// The folder's code folders (0057 role setup writes them as additionalDirectories): passed explicitly, since project
+// settings that grant access only apply once a folder is trusted. For Claude Code the deny rules apply regardless
+// (Edit/Write on the folder for a read-only role). Codex has no such rules: `--add-dir` under workspace-write makes
+// the folder writable, so a folder the settings deny Edit/Write on isn't added there at all; the prompt says it is
+// read-only and that cat and git read it fine (the sandbox allows reads anywhere). The flag semantics are taken from
+// the code as written, not checked against a live Codex.
+const codeDirs = (() => {
   try {
     const j = JSON.parse(readFileSync(join(process.cwd(), ".claude", "settings.json"), "utf8"));
-    return (j.permissions?.additionalDirectories ?? []).filter((d) => typeof d === "string").flatMap((d) => ["--add-dir", d]);
+    const p = j.permissions ?? {};
+    const norm = (d) => resolve(String(d)).replace(/[\\/]+$/, "");
+    // Edit(/path/**), Write(/path/**) or Edit(/path): a rule whose path is the folder or one above it.
+    const denied = (p.deny ?? []).filter((r) => typeof r === "string").map((r) => /^(?:Edit|Write)\((.+)\)$/.exec(r)?.[1]).filter(Boolean).map((x) => norm(x.replace(/\/\*\*?$/, "")));
+    return (p.additionalDirectories ?? []).filter((d) => typeof d === "string").map((d) => ({ dir: d, readOnly: denied.some((x) => norm(d) === x || norm(d).startsWith(x + "/")) }));
   } catch {
     return [];
   }
 })();
+const addDirs = codeDirs.flatMap((d) => ["--add-dir", d.dir]);
+const codexAddDirs = codeDirs.filter((d) => !d.readOnly).flatMap((d) => ["--add-dir", d.dir]);
+const codexReadOnly = codeDirs.filter((d) => d.readOnly).map((d) => d.dir);
+const codexPrompt = (p) => (codexReadOnly.length ? `${p}\n\nThe code at ${codexReadOnly.join(", ")} is read-only for you: read it with cat, ls and git (git -C <path> log, git -C <path> show); never edit it or write into it.` : p);
 const codexArgs = () => [
   "exec",
   "--json",
@@ -209,8 +222,8 @@ const codexArgs = () => [
   `mcp_servers.agentorb.url=${JSON.stringify(url)}`,
   "-c",
   'mcp_servers.agentorb.bearer_token_env_var="AGENTORB_KEY"',
-  ...addDirs,
-  instructions(prompt),
+  ...codexAddDirs,
+  codexPrompt(instructions(prompt)),
 ];
 const child =
   engine === "codex"

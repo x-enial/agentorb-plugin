@@ -12,8 +12,8 @@ import { execFile, execFileSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { createHash } from "node:crypto";
-import { basename, dirname, join } from "node:path";
-import { serverUrl, session, strayServers } from "./config.mjs";
+import { basename, dirname, join, relative } from "node:path";
+import { serverUrl, session, startDir, strayServers } from "./config.mjs";
 import { setUpForRole } from "./role-setup.mjs";
 
 const codeArg = () => {
@@ -24,6 +24,13 @@ const codeArg = () => {
 const me = session();
 const site = serverUrl(me.link).replace(/\/api\/mcp(?:\/plugin)?$/, "");
 const say = (s) => process.stdout.write(s + "\n");
+// Run from inside the repo (a package in a monorepo): the files still go at the git root (one agent per git root
+// today), so the board hears which subfolder this came from and doesn't treat the root's agent as the one being
+// replaced (the connect page used to pre-tick Retire for it).
+const subfolder = (() => {
+  const rel = relative(me.root, startDir());
+  return rel && !rel.startsWith("..") ? rel.replaceAll("\\", "/") : undefined;
+})();
 
 const remote = (() => {
   try {
@@ -78,7 +85,7 @@ if (process.argv.includes("--accept")) {
   answer = await post("/api/connect/poll", { secret: p.secret, accept: true }).catch(() => ({ status: "expired" }));
 } else {
   try {
-    start = await post("/api/connect/start", { repo: remote, folder: basename(me.root), host: hostname(), project: me.link?.project, vendor: process.env.AGENTORB_VENDOR || "claude-code", keySource: me.keySource ?? undefined, suggestedRole: process.env.AGENTORB_SUGGEST_ROLE || undefined, suggestedName: process.env.AGENTORB_SUGGEST_NAME || undefined }, me.key);
+    start = await post("/api/connect/start", { repo: remote, folder: basename(me.root), subfolder, host: hostname(), project: me.link?.project, vendor: process.env.AGENTORB_VENDOR || "claude-code", keySource: me.keySource ?? undefined, suggestedRole: process.env.AGENTORB_SUGGEST_ROLE || undefined, suggestedName: process.env.AGENTORB_SUGGEST_NAME || undefined }, me.key);
   } catch (e) {
     say(`AgentOrb: couldn't start connecting (${e.message}).`);
     process.exit(1);
@@ -152,6 +159,7 @@ const pack = answer.role ? setUpForRole(me.root, answer.role, answer.project?.sl
 
 say(`Connected: ${basename(me.root)} is now "${answer.agent.name}" on ${answer.project ? `the ${answer.project.name} board` : "your board"} (${answer.workspace.name}).`);
 say("The key is in .agentorb.local.json (git-ignored, readable only by you); .agentorb.json names the board.");
+if (subfolder) say(`Both files are at the repo's root, not in ${subfolder}: one agent per git root is the rule today, so this agent is the whole repo's. For an agent of its own for one part, use add-agent (a folder beside the repo).`);
 if (answer.role) say(`Role: ${answer.role.label}.${answer.page ? ` Its ${answer.page.title} page on the board is printed into every session.` : ""}`);
 if (pack?.note) say(pack.note);
 if (answer.replaced) {

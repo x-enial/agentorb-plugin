@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { serverUrl, session, touchLive } from "./config.mjs";
+import { linkedNearby, serverUrl, session, touchLive } from "./config.mjs";
 
 const TTL_MS = 60_000;
 let input = {};
@@ -27,8 +27,13 @@ try {
   /* no stdin */
 }
 const tool = String(input.tool_name ?? "");
-// AgentOrb's own tools always go through: a held agent still reads the board and reports.
-if (/^mcp__(plugin_agentorb_)?agentorb__/.test(tool)) process.exit(0);
+// AgentOrb's own tools always go through: a held agent still reads the board and reports. The claude.ai connector's
+// (mcp__claude_ai_AgentOrb__*) too: they are board tools, not a way around the hold, and they never send anything out.
+if (/^mcp__(plugin_agentorb_|claude_ai_)?agentorb__/i.test(tool)) process.exit(0);
+
+// Not on a board: out before anything is spawned or written. The hook runs on every tool call in every repo on the
+// machine, and session() would start git each time.
+if (!linkedNearby()) process.exit(0);
 
 const me = session();
 // You're here: the runner stays out of this repo while you work in it (config.mjs LIVE_MS).

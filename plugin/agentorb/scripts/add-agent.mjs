@@ -3,15 +3,15 @@
  * Add another agent to this codebase (0084), run from the main repo by /agentorb:add-agent or `agentorb add-agent`.
  * Every extra agent of a project lives next to the repo, in one folder named after it:
  *
- *   React/AbletonClock/                 the main repo (its Builder)
- *   React/AbletonClock-agents/marketing/   a plain folder: reads the code read-only, writes its own notes and drafts
- *   React/AbletonClock-agents/reviewer/    a git worktree on its own branch, for a role that edits code
+ *   code/MyApp/                    the main repo (its Builder)
+ *   code/MyApp-agents/marketing/   a plain folder: reads the code read-only, writes its own notes and drafts
+ *   code/MyApp-agents/reviewer/    a git worktree on its own branch, for a role that edits code
  *
  * Next to the repo, not inside it: inside, Claude Code would load the Builder's CLAUDE.md and see the folder as part
  * of the repo. It makes the folder, links it to the repo's board, then runs the usual approval (connect.mjs, with the
  * role and name filled in and the code folder passed on), which sets the folder up for its role. Never prints a key.
  *
- *   node add-agent.mjs --role marketer [--name "SetHours Marketing"] [--folder marketing] [--engine claude|codex] [--worktree|--plain]
+ *   node add-agent.mjs --role marketer [--name "MyApp Marketing"] [--folder marketing] [--engine claude|codex] [--worktree|--plain]
  *
  * Exit codes: connect.mjs's (0 connected, 2 turned down, 3 expired, 4 approved from another network), 1 anything else.
  */
@@ -29,7 +29,11 @@ const opt = (name) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 
-/** Roles that edit code get their own worktree (their own checkout and branch); the rest read the code from beside it. */
+/**
+ * Roles that edit code get their own worktree (their own checkout and branch); the rest read the code from beside it.
+ * A copy of the app's list (src/lib/agents/roles.ts: keys, labels and `code`); when a role is added or renamed there,
+ * change it here too. The board is the one that decides what a role may do; this only picks the folder's shape.
+ */
 const ROLES = {
   builder: { label: "Builder", word: "builder", code: "edit" },
   reviewer: { label: "Reviewer / QA", word: "reviewer", code: "read" },
@@ -41,7 +45,7 @@ const ROLES = {
   designer: { label: "Designer", word: "design", code: "read" },
   coordinator: { label: "Coordinator", word: "coordinator", code: "none" },
   assistant: { label: "Assistant", word: "assistant", code: "none" },
-  custom: { label: "Custom", word: "agent", code: "edit" },
+  custom: { label: "General", word: "agent", code: "edit" },
 };
 
 const roleKey = (opt("role") || "").toLowerCase();

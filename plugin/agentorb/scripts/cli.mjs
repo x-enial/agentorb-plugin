@@ -77,7 +77,7 @@ if (cmd === "connect") {
   if (setEngine(engine)) say(`This folder's runs use ${engine === "codex" ? "Codex" : "Claude Code"}.`);
   if (engine === "codex") {
     say("");
-    say("For your own Codex sessions here, connect Codex to AgentOrb once (pick the same agent: \"Or reconnect an agent you already have\"):");
+    say("For your own Codex sessions here, connect Codex to AgentOrb once (pick the same agent under \"One you have\"):");
     say("  codex mcp add agentorb --url https://app.agent-orb.com/api/mcp");
     say("Then keep it working while you're away:");
     say("  npx -y github:x-enial/agentorb-plugin runner on");

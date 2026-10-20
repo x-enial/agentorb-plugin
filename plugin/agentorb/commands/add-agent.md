@@ -7,7 +7,7 @@ Run this from the project's main repo, where its first agent works (it must alre
 
 1. If $ARGUMENTS doesn't say the role, ask ONE question with the roles and a line each, and a name (offer the default):
    Builder (writes code: gets its own worktree and branch), Reviewer / QA, Writer, Marketer / Growth, Support / Community, Researcher / Analyst, Operator, Designer, Coordinator, Assistant.
-   The default name is the board and the job, like "SetHours Marketing".
+   The default name is the board and the job, like "MyApp Marketing".
 2. Run with a 15-minute timeout (it waits while the person approves in the browser):
    ```
    node "${CLAUDE_PLUGIN_ROOT}/scripts/add-agent.mjs" --role <role key> --name "<name>"

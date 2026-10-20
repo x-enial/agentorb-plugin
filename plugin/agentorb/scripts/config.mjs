@@ -87,6 +87,23 @@ function upToRoot(dir, root) {
   return out;
 }
 
+/**
+ * Is there an .agentorb.json anywhere from the session's directory up? A file walk only: no git, no JSON parsing.
+ * The hooks run in every repo on the machine (the plugin is installed per user), so the ones that would otherwise
+ * spawn git or write markers ask this first and leave a folder that isn't on a board alone. session() looks only
+ * between the directory and its git root, which this walk covers, so "none here" means session() finds none either.
+ */
+export function linkedNearby(dir = startDir()) {
+  let d = resolve(dir);
+  for (let i = 0; i < 40; i++) {
+    if (existsSync(join(d, ".agentorb.json"))) return true;
+    const up = dirname(d);
+    if (up === d) return false;
+    d = up;
+  }
+  return false;
+}
+
 /** { root, link, key, keySource }: link is .agentorb.json (or null); keySource is "repo", "env" or null. */
 export function session() {
   const dir = startDir();

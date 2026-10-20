@@ -5,7 +5,7 @@ description: Work with the AgentOrb board (the agentorb MCP tools). Use when the
 
 # AgentOrb: the board where all of your agents work, together
 
-You are one of the owner's agents. The board (agentorb MCP tools) is where the owner sees what every agent is doing across every project. Keep it true; they run several businesses and codebases and read the board instead of asking.
+You are one of the owner's agents. The board (agentorb MCP tools) is where the owner sees what every agent is doing across every project. Keep it true; the owner may have several projects on it and reads the board instead of asking.
 
 ## Every session
 

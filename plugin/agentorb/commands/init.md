@@ -14,6 +14,7 @@ Steps:
    - Exit 2: they turned it down; stop. Exit 3: it expired; offer to run it again. Exit 1: say what it printed.
    - Exit 4: the link was approved from another network; the output says by whom and into which workspace. Show that to the person and ask whether it was them. Only on a clear yes, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/connect.mjs" --accept`; otherwise say someone else may have the link and offer a new one. Never accept on your own.
    - In a second git worktree this gives the worktree its own agent (approve it as a new agent named for its job); never copy the main checkout's `.agentorb.local.json`. To add another agent to a repo that already has one, `/agentorb:add-agent` from the main repo makes its folder beside it (`<repo>-agents/<role>/`) and does this for it.
+   - One agent per git root is the rule today: the files are written at the repo's root, so running this from a package inside a monorepo connects the whole repo, not the package (the script tells the board which subfolder it ran from, so the page doesn't offer to retire the root's agent). A second agent for one part of a repo is `/agentorb:add-agent`, in its own folder beside the repo.
 2. If the output says the shell still sets `AGENTORB_KEY` to a retired key and names the lines, offer to remove those lines (show them first, edit only with a yes). Don't touch them otherwise.
 3. In the repo's `CLAUDE.md` (create it if missing), put this section between the markers, replacing any existing one between the same markers. Use the board slug and workspace from `.agentorb.json`:
    ```
@@ -28,6 +29,7 @@ Steps:
    - Commits, PRs and deploys go in a short `add_note` on the card, not in its title.
    - Ideas go through `propose_idea` (a Backlog card the owner accepts or drops), not into the code.
    - Never put keys, tokens, customer data or private-channel content on the board. The repo's docs are the record; the board is status and coordination.
+   - Where this conflicts with the repo's own instructions, the repo wins for how code is done; the board wins for what goes out and what needs a go.
    <!-- agentorb:end -->
    ```
 4. Keep the agent working when the person is away (only when step 1 connected). An open session is not a wakeable agent: it only acts when someone types, so hand-offs and messages wait. First run `node "${CLAUDE_PLUGIN_ROOT}/scripts/runner-setup.mjs" status`; if it says the runner is installed or a line added by hand starts it, say so in one line and skip the question. Otherwise ask ONE question:

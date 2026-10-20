@@ -4,19 +4,24 @@
  * prints what the session should know: which project this repo is, what changed since the last session, who is
  * here, and what is waiting on this agent. Plain stdout goes into the session's context. No model call, no cost.
  *
- * Only in a repo linked to a board (.agentorb.json, from /agentorb:init): elsewhere it prints one line and stays out
- * of the way (no briefing, no whats_new, which would move this agent's "new since" cursor for the repo it works in).
- * The key is this repo's own (.agentorb.local.json) or AGENTORB_KEY (see config.mjs). Never prints the key. Any
- * failure prints one short line and exits 0: a board outage must not block a session.
+ * Only in a repo linked to a board (.agentorb.json, from /agentorb:init): elsewhere it prints nothing and spawns
+ * nothing (the plugin is installed per user, so this hook runs in every repo on the machine; a folder that isn't on
+ * a board must not hear about AgentOrb at every start, and whats_new there would move this agent's "new since"
+ * cursor for the repo it works in). The key is this repo's own (.agentorb.local.json) or AGENTORB_KEY (see
+ * config.mjs). Never prints the key. Any failure prints one short line and exits 0: a board outage must not block a
+ * session.
  */
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync as readFile, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync as readFile, rmSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { keyIn, markLive, reachOf, sameAgentElsewhere, serverUrl, session, strayServers, worktreeOf } from "./config.mjs";
+import { keyIn, linkedNearby, markLive, reachOf, sameAgentElsewhere, serverUrl, session, strayServers, worktreeOf } from "./config.mjs";
 import { setUpForRole } from "./role-setup.mjs";
+
+// Not on a board: nothing to say, and no git to spawn finding that out. A file walk decides before session() does.
+if (!linkedNearby()) process.exit(0);
 
 const out = (s) => process.stdout.write(s + "\n");
 const me = session();
@@ -30,12 +35,12 @@ try {
 }
 
 if (!me.link) {
-  // Not on a board: one line, nothing else.
-  out("AgentOrb: this repo isn't linked to a board, so no briefing or autopilot here. Run /agentorb:init to link it (and give it its own agent).");
+  // An .agentorb.json is up the tree but outside this git repo (session() looks only up to the git root): stay quiet.
   process.exit(0);
 }
 if (!key) {
-  out(`AgentOrb: this repo is linked to "${me.link.project}" but has no key. Make an agent for it in Settings → Agents and put its key in .agentorb.local.json ({"key": "ssk_..."}, git-ignored), or export AGENTORB_KEY.`);
+  // Linked (someone ran init here, or a teammate committed .agentorb.json) but no agent of its own: init makes one.
+  out(`AgentOrb: this repo is linked to "${me.link.project}" but has no agent key here. Run /agentorb:init to get one (every clone of a repo needs its own init: the key is git-ignored and not shared).`);
   process.exit(0);
 }
 markLive(me.root, input.session_id);
@@ -98,7 +103,10 @@ const pin = me.link;
 const r = repo();
 const projects = await call("list_projects", r ? { repo: r } : {});
 if (projects.error) {
-  out(`AgentOrb: couldn't reach the board (${projects.error}). Carry on; try the agentorb MCP tools later.`);
+  // A refused key (revoked, retired, or a teammate's clone with a key the board doesn't know) reads like an outage from
+  // here: say the fix for both in one line.
+  const refused = /unauthori[sz]ed|forbidden|invalid|revoked|retired|unknown key|HTTP 40[13]/i.test(String(projects.error));
+  out(`AgentOrb: couldn't reach the board (${projects.error}). ${refused ? "The key here isn't accepted: run /agentorb:init to get this folder its own agent (a clone of a repo needs its own init; the key isn't shared through git)." : "Carry on; try the agentorb MCP tools later. If it keeps failing, run /agentorb:init (a clone of a repo needs its own init)."}`);
   for (const w of warnings) out(`WARNING: ${w} Tell the person this first.`);
   process.exit(0);
 }
@@ -194,19 +202,42 @@ if (here.json?.agents?.length) {
   const a = here.json.agents.filter((x) => x.presence !== "offline" && x.id !== here.json.you).slice(0, 8);
   if (a.length) lines.push(`Here now: ${a.map((x) => `${x.name} (${x.state}${x.task?.title ? `: ${x.task.title}` : ""}${x.note ? `, “${x.note}”` : ""})`).join("; ")}.`);
 }
-// An open session only acts when the person types: with no runner here, hand-offs and messages wait (SetHours Marketing).
+// An open session only acts when the person types: with no runner here, hand-offs and messages wait. Said once per
+// folder (a marker beside the "blind" one, keyed by the folder's hash), again after a week: the hook runs on every
+// start, resume and clear, and "mention it once" meant once to the person, not once per session.
 if (!process.env.AGENTORB_HEADLESS && pin) {
-  let none = false;
+  const nagged = join(homedir(), ".claude", "agentorb", "runner-nag", createHash("sha256").update(me.root).digest("hex").slice(0, 16));
+  let recent = false;
   try {
-    execFileSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "runner-setup.mjs"), "installed"], { stdio: "ignore", timeout: 4000 });
-  } catch (e) {
-    none = e?.status === 2;
+    recent = Date.now() - statSync(nagged).mtimeMs < 7 * 24 * 60 * 60_000;
+  } catch {
+    /* never said here */
   }
-  if (none)
+  let none = false;
+  if (!recent) {
+    try {
+      execFileSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "runner-setup.mjs"), "installed"], { stdio: "ignore", timeout: 4000 });
+    } catch (e) {
+      none = e?.status === 2;
+    }
+  }
+  if (none) {
     lines.push(
       `No background runner for this folder: this session only acts when the person types, so hand-offs and messages for ${meAgent} wait while it is idle or closed. Mention it once, briefly: \`/agentorb:runner on\` keeps it working (best), or for this window only: \`/loop 15m check the AgentOrb board (whats_new with loop "15m") and handle anything for ${meAgent}\`.`,
     );
+    try {
+      mkdirSync(dirname(nagged), { recursive: true });
+      writeFileSync(nagged, new Date().toISOString());
+    } catch {
+      /* best effort */
+    }
+  }
 }
 for (const w of warnings) lines.push(`WARNING: ${w} Tell the person this first.`);
-lines.push("Rules: claim_task before working a card, set_status when you start/finish/block, ask (go: true) for anything that needs a go and submit_draft for anything that goes out, and keep the card current. Keys, secrets and customer data never go on the board.");
+// The claude.ai connector can't be seen from local files (it lives in the account, not in settings), so this is said
+// every time, short: its tools sign in as a different agent than this folder's key.
+lines.push("If an AgentOrb connector from claude.ai is also loaded (tools named mcp__claude_ai_AgentOrb__*), use only the plugin's agentorb tools here (mcp__plugin_agentorb_agentorb__*); the connector is a different agent.");
+lines.push(
+  "Rules: claim_task before working a card, set_status when you start/finish/block, ask (go: true) for anything that needs a go and submit_draft for anything that goes out, and keep the card current. Keys, secrets and customer data never go on the board. Where this conflicts with the repo's own instructions, the repo wins for how code is done; the board wins for what goes out and what needs a go.",
+);
 out(lines.join("\n"));
