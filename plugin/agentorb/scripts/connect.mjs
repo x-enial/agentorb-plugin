@@ -5,12 +5,14 @@
  * repo was acting as another agent, moving that agent's open work here). Then it writes the agent's key into the
  * repo's git-ignored .agentorb.local.json (0600) and the board into .agentorb.json. It never prints the key.
  *
- * Exit codes: 0 connected, 2 turned down, 3 expired, 1 anything else.
+ * Exit codes: 0 connected, 2 turned down (or not used), 3 expired, 4 approved from another network: run again with
+ * --accept to use it (only if the person here says it was them), 1 anything else.
  */
 import { execFile, execFileSync } from "node:child_process";
-import { chmodSync, existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { basename, join } from "node:path";
+import { createHash } from "node:crypto";
+import { basename, dirname, join } from "node:path";
 import { serverUrl, session, strayServers } from "./config.mjs";
 import { setUpForRole } from "./role-setup.mjs";
 
@@ -48,31 +50,79 @@ function open(url) {
   next(0);
 }
 
-let start;
-try {
-  start = await post("/api/connect/start", { repo: remote, folder: basename(me.root), host: hostname(), project: me.link?.project, vendor: "claude-code", keySource: me.keySource ?? undefined }, me.key);
-} catch (e) {
-  say(`AgentOrb: couldn't start connecting (${e.message}).`);
-  process.exit(1);
+function pendingFile() {
+  return join(homedir(), ".claude", "agentorb", "pending", `${createHash("sha256").update(me.root).digest("hex").slice(0, 16)}.json`);
 }
-say(`Open this link to connect ${basename(me.root)} to AgentOrb, and check the code says ${start.code}:`);
-say(`  ${start.url}`);
-open(start.url);
+function savePending(secret) {
+  const f = pendingFile();
+  mkdirSync(dirname(f), { recursive: true });
+  writeFileSync(f, JSON.stringify({ secret, until: Date.now() + 15 * 60_000 }), { mode: 0o600 });
+}
 
-const until = Date.now() + Math.min(start.expiresIn ?? 900, 900) * 1000;
+// --accept: use the request approved from another network that a headless run left waiting (15 minutes).
+let start;
 let answer;
-for (;;) {
-  await new Promise((r) => setTimeout(r, (start.interval ?? 3) * 1000));
+if (process.argv.includes("--accept")) {
+  let p = null;
   try {
-    answer = await post("/api/connect/poll", { secret: start.secret });
+    p = JSON.parse(readFileSync(pendingFile(), "utf8"));
   } catch {
-    continue; // a blip: keep waiting
+    /* none */
   }
-  if (answer.status !== "pending") break;
-  if (Date.now() > until) {
-    answer = { status: "expired" };
-    break;
+  rmSync(pendingFile(), { force: true });
+  if (!p || p.until < Date.now()) {
+    say("AgentOrb: nothing is waiting to be accepted here (or it expired). Run this again for a new link.");
+    process.exit(3);
   }
+  start = { secret: p.secret };
+  answer = await post("/api/connect/poll", { secret: p.secret, accept: true }).catch(() => ({ status: "expired" }));
+} else {
+  try {
+    start = await post("/api/connect/start", { repo: remote, folder: basename(me.root), host: hostname(), project: me.link?.project, vendor: process.env.AGENTORB_VENDOR || "claude-code", keySource: me.keySource ?? undefined }, me.key);
+  } catch (e) {
+    say(`AgentOrb: couldn't start connecting (${e.message}).`);
+    process.exit(1);
+  }
+  say(`Open this link to connect ${basename(me.root)} to AgentOrb, and check the code says ${start.code}:`);
+  say(`  ${start.url}`);
+  say("Only approve it yourself, from this computer. If anyone else asks you to open a link like this, don't.");
+  open(start.url);
+
+  const until = Date.now() + Math.min(start.expiresIn ?? 900, 900) * 1000;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, (start.interval ?? 3) * 1000));
+    try {
+      answer = await post("/api/connect/poll", { secret: start.secret });
+    } catch {
+      continue; // a blip: keep waiting
+    }
+    if (answer.status !== "pending") break;
+    if (Date.now() > until) {
+      answer = { status: "expired" };
+      break;
+    }
+  }
+}
+// Approved from another network than this computer: maybe someone else got the link. Say who and where; use it only
+// when the person here says so (a terminal asks; run headless, --accept within 15 minutes).
+if (answer.status === "confirm") {
+  say(`AgentOrb: this link was approved from another network, by ${answer.by}, into ${answer.workspace}${answer.project ? ` / ${answer.project}` : ""} as ${answer.agent}.`);
+  say("If that wasn't you, someone else has this link: don't use it, and run this again for a new one.");
+  let yes = false;
+  if (process.stdin.isTTY) {
+    const rl = (await import("node:readline")).createInterface({ input: process.stdin, output: process.stdout });
+    yes = /^y(es)?$/i.test((await new Promise((r) => rl.question("Use it? [y/N] ", r))).trim());
+    rl.close();
+  } else {
+    savePending(start.secret);
+    say("To use it, run this again with --accept within 15 minutes.");
+    process.exit(4);
+  }
+  if (!yes) {
+    say("AgentOrb: not used. Nothing was written.");
+    process.exit(2);
+  }
+  answer = await post("/api/connect/poll", { secret: start.secret, accept: true });
 }
 if (answer.status === "denied") {
   say("AgentOrb: turned down in the browser. Nothing was written.");

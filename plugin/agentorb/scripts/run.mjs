@@ -6,12 +6,18 @@
  * for self-started work, means no run at all (an empty run still costs). Prints what `claude -p` would have printed.
  *
  *   node run.mjs --job work|think --prompt "/agentorb:work 1" -- <claude args…>
+ *
+ * The engine is Claude Code unless the folder says otherwise (.agentorb.json "engine", or AGENTORB_ENGINE): "codex"
+ * runs `codex exec` with the same instructions (the plugin's commands/*.md, which Codex can't run as slash commands),
+ * the folder's own key for AgentOrb (the run's MCP connection overrides Codex's own), and Codex's sandbox in place of
+ * Claude's tool allowlist (workspace-write by default, AGENTORB_CODEX_SANDBOX to change it).
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { liveHere, serverUrl, session } from "./config.mjs";
 
 // This repo's own agent (.agentorb.local.json) or AGENTORB_KEY; this repo's board only (.agentorb.json).
@@ -29,6 +35,7 @@ const opt = (name, d) => {
 let job = opt("job", "work");
 let prompt = opt("prompt", "/agentorb:work 1");
 const force = own.includes("--force");
+const engine = String(process.env.AGENTORB_ENGINE || me.link?.engine || "claude").toLowerCase() === "codex" ? "codex" : "claude";
 const log = (s) => process.stderr.write(`${new Date().toISOString()} ${s}\n`);
 
 if (!key) {
@@ -135,6 +142,41 @@ function read(line) {
   }
 }
 
+/** 0083: Codex's --json events, read into the same steps and result. */
+function readCodex(line) {
+  let o;
+  try {
+    o = JSON.parse(line);
+  } catch {
+    return;
+  }
+  const it = o.item || {};
+  if (o.type === "item.started") {
+    if (it.type === "mcp_tool_call") seen.steps.push(stepOf({ name: `mcp__${it.server || "agentorb"}__${it.tool}`, input: it.arguments || {} }));
+    else if (it.type === "command_execution") seen.steps.push(stepOf({ name: "Bash", input: { command: it.command } }));
+    else if (it.type === "web_search") seen.steps.push(stepOf({ name: "WebSearch", input: { query: it.query } }));
+  } else if (o.type === "item.completed") {
+    if (it.type === "file_change") for (const c of (it.changes || []).slice(0, 5)) seen.steps.push(stepOf({ name: "Edit", input: { file_path: c.path } }));
+    else if (it.type === "agent_message" && typeof it.text === "string") seen.result = it.text;
+  } else if (o.type === "turn.failed" || o.type === "error") {
+    seen.error = true;
+    seen.result = String(o.error?.message || o.message || "Codex stopped with an error");
+  }
+}
+
+/** The plugin's instructions for a job (commands/<job>.md without its header), for an engine without slash commands. */
+function instructions(p) {
+  const m = /^\/agentorb:(work|think|routine)\s*(.*)$/.exec(p.trim());
+  if (!m) return p;
+  const file = join(dirname(dirname(fileURLToPath(import.meta.url))), "commands", `${m[1]}.md`);
+  try {
+    const body = readFileSync(file, "utf8").replace(/^---[\s\S]*?---\s*/, "");
+    return `${body.replaceAll("$ARGUMENTS", m[2] || (m[1] === "work" ? "1" : ""))}\n\n(Run without a person: never wait for input. The agentorb MCP server is your board.)`;
+  } catch {
+    return p;
+  }
+}
+
 let chain = Promise.resolve();
 const tell = (body) => {
   chain = chain.then(() => call("report_run", { job, ...body })).catch(() => {});
@@ -154,7 +196,27 @@ const addDirs = (() => {
     return [];
   }
 })();
-const child = spawn("claude", ["-p", prompt, ...rest, ...addDirs, "--output-format", "stream-json", "--verbose"], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, AGENTORB_HEADLESS: "1", AGENTORB_KEY: key } });
+const codexArgs = () => [
+  "exec",
+  "--json",
+  "--skip-git-repo-check",
+  "-s",
+  process.env.AGENTORB_CODEX_SANDBOX || "workspace-write",
+  "-c",
+  'approval_policy="never"',
+  // The folder's own agent, whatever Codex's own AgentOrb connection signs in as.
+  "-c",
+  `mcp_servers.agentorb.url=${JSON.stringify(url)}`,
+  "-c",
+  'mcp_servers.agentorb.bearer_token_env_var="AGENTORB_KEY"',
+  ...addDirs,
+  instructions(prompt),
+];
+const child =
+  engine === "codex"
+    ? spawn("codex", codexArgs(), { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, AGENTORB_HEADLESS: "1", AGENTORB_KEY: key } })
+    : spawn("claude", ["-p", prompt, ...rest, ...addDirs, "--output-format", "stream-json", "--verbose"], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, AGENTORB_HEADLESS: "1", AGENTORB_KEY: key } });
+const parse = engine === "codex" ? readCodex : read;
 // The routine's ring on the card is the routine's own name (routine_done keeps it); the run itself reports under "routine".
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => child.kill(sig));
 let buf = "";
@@ -162,7 +224,7 @@ child.stdout.on("data", (d) => {
   buf += d;
   let i;
   while ((i = buf.indexOf("\n")) >= 0) {
-    read(buf.slice(0, i));
+    parse(buf.slice(0, i));
     buf = buf.slice(i + 1);
   }
   while (told < seen.steps.length) tell({ step: seen.steps[told++] });
@@ -171,7 +233,7 @@ const code = await new Promise((done) => {
   child.on("close", (c, sig) => done(c ?? (sig ? 143 : 1)));
   child.on("error", () => done(127));
 });
-if (buf) read(buf);
+if (buf) parse(buf);
 // Why a run ended (0056), so the runner does the right thing next: ok; limit (the plan's window is spent or the API
 // refused for load: wait for the reset, don't retry into it); timeout (the run hit its time box); logic (it ran but
 // ended in an error: its own retry won't help, so back off); crash (it died without a result: retry once).

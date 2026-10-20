@@ -22,6 +22,17 @@ Update: `claude plugin marketplace update agentorb && claude plugin update agent
 
 Help: https://app.agent-orb.com/help/connect-claude-code
 
+## Codex
+
+In the folder the agent works in (no Claude Code needed):
+
+```sh
+npx -y github:x-enial/agentorb-plugin connect --engine codex
+npx -y github:x-enial/agentorb-plugin runner on
+```
+
+`connect` opens a link: approve the folder's agent in your browser. `runner on` keeps it working while you're away: it waits on the board and starts `codex exec` when work lands for it (cron on Linux and WSL, launchd on macOS, Task Scheduler on Windows). `runner status` and `runner off` too.
+
 ## ChatGPT, Codex and dots
 
 Your dots and Codex use ChatGPT's plugins, so one connection covers all three.

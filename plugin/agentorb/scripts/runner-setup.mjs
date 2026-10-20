@@ -32,7 +32,11 @@ const home = homedir();
 const logDir = join(home, ".claude", "agentorb", "logs");
 const logFile = join(logDir, `runner-${hash}.log`);
 const cacheDir = join(home, ".claude", "plugins", "cache", "agentorb", "agentorb");
-const inCache = resolve(pluginRoot).startsWith(resolve(cacheDir) + (process.platform === "win32" ? "\\" : "/"));
+const sep = process.platform === "win32" ? "\\" : "/";
+const inCache = resolve(pluginRoot).startsWith(resolve(cacheDir) + sep);
+// 0083: installed without Claude Code (the `agentorb` command, for Codex): ~/.agentorb/runner/<version>/, newest wins too.
+const homeRunnerDir = join(home, ".agentorb", "runner");
+const inHome = resolve(pluginRoot).startsWith(resolve(homeRunnerDir) + sep);
 
 function platform() {
   const forced = process.env.AGENTORB_RUNNER_PLATFORM;
@@ -112,7 +116,11 @@ const cronEsc = (s) => s.replace(/%/g, "\\%");
 const lockFile = `/tmp/agentorb-runner-${hash}.lock`;
 
 function cronLine() {
-  const runner = inCache ? `"$(ls -d "$HOME"/.claude/plugins/cache/agentorb/agentorb/*/ | sort -V | tail -1)scripts/runner.mjs"` : sq(join(here, "runner.mjs"));
+  const runner = inCache
+    ? `"$(ls -d "$HOME"/.claude/plugins/cache/agentorb/agentorb/*/ | sort -V | tail -1)scripts/runner.mjs"`
+    : inHome
+      ? `"$(ls -d "$HOME"/.agentorb/runner/*/ | sort -V | tail -1)scripts/runner.mjs"`
+      : sq(join(here, "runner.mjs"));
   const path = `PATH=${sq(jobPath(":"))}:"$PATH"`;
   return cronEsc(`* * * * * cd ${sq(folder)} && ${path} flock -n ${lockFile} node ${runner} >> "$HOME/.claude/agentorb/logs/runner-${hash}.log" 2>&1 `) + marker;
 }
@@ -248,7 +256,7 @@ function cronInstall(replace) {
     say(`Background runner for ${folder}: installed${had.length ? " (updated the line)" : ""}${replace && hand.length ? ", replacing the line you added by hand" : ""}. Your other crontab lines are unchanged.`);
     say("cron starts it within a minute and keeps it going (one at a time); it takes work, messages and due routines, and holds off while you have a Claude Code session open in this folder.");
   }
-  if (!inCache) say(`Note: this plugin isn't in Claude Code's plugin cache, so the line points at ${here} directly; updates elsewhere won't be picked up.`);
+  if (!inCache && !inHome) say(`Note: this plugin isn't in Claude Code's plugin cache, so the line points at ${here} directly; updates elsewhere won't be picked up.`);
   if (!which("claude")) say("Note: `claude` isn't on your PATH here, so runs can't start. Install Claude Code or add it to PATH, then run install again.");
   say(`Log: ${logFile}`);
   wslCronNote();
@@ -293,7 +301,7 @@ import { spawn } from "node:child_process";
 import { existsSync, openSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-const cache = join(homedir(), ".claude", "plugins", "cache", "agentorb", "agentorb");
+const cache = ${inHome ? 'join(homedir(), ".agentorb", "runner")' : 'join(homedir(), ".claude", "plugins", "cache", "agentorb", "agentorb")'};
 const num = (v) => v.split(/[.-]/).map((x) => (/^\\d+$/.test(x) ? Number(x) : -1));
 const newer = (a, b) => { const x = num(a), y = num(b); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0); return 0; };
 let dirs = [];

@@ -36,7 +36,7 @@ const jitter = (ms, f = 0.25) => Math.round(ms * (1 - f + Math.random() * 2 * f)
  */
 const versionDir = dirname(here);
 const cacheDir = dirname(versionDir);
-const inCache = /[\\/]plugins[\\/]cache[\\/]agentorb[\\/]agentorb$/.test(cacheDir);
+const inCache = /[\\/]plugins[\\/]cache[\\/]agentorb[\\/]agentorb$/.test(cacheDir) || /[\\/]\.agentorb[\\/]runner$/.test(cacheDir);
 const mine = basename(versionDir);
 const parts = (v) => v.split(/[.-]/).map((n) => parseInt(n, 10) || 0);
 const cmp = (a, b) => {
