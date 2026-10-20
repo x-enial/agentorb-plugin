@@ -113,7 +113,10 @@ export function session() {
 }
 
 /**
- * Where calls (and the key) go. AGENTORB_URL from your own environment wins; else the repo's .agentorb.json url, but
+ * Where calls (and the key) go: the plugin's own address of the MCP server (/api/mcp/plugin, 0.32.0). Claude Code
+ * keeps one MCP server per URL, so a claude.ai AgentOrb connector on the same account (which uses /api/mcp) used to
+ * replace the plugin's server in `claude -p` runs, and the runner's calls went out as the wrong agent.
+ * AGENTORB_URL from your own environment wins; else the repo's .agentorb.json url, but
  * only an AgentOrb host over https: a committed file must never be able to send a key somewhere else (a cloned repo
  * could say anything). Anything else is ignored with a warning, and the canonical server is used.
  */
@@ -132,13 +135,13 @@ export const serverUrl = (link) => {
   if (env) return env.replace(/\/$/, "");
   if (link?.url) {
     const u = String(link.url).replace(/\/$/, "");
-    if (ownHost(u)) return `${u}/api/mcp`;
+    if (ownHost(u)) return `${u}/api/mcp/plugin`;
     if (warnedUrl !== u) {
       warnedUrl = u;
       console.error(`agentorb: ignoring url ${u} from .agentorb.json (not an agent-orb.com host): the key goes only to AgentOrb. Set AGENTORB_URL yourself to use another server.`);
     }
   }
-  return `${CANONICAL}/api/mcp`;
+  return `${CANONICAL}/api/mcp/plugin`;
 };
 
 /**

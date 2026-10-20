@@ -2,7 +2,7 @@
   "mcpServers": {
     "agentorb": {
       "type": "http",
-      "url": "${AGENTORB_URL:-https://app.agent-orb.com/api/mcp}",
+      "url": "${AGENTORB_URL:-https://app.agent-orb.com/api/mcp/plugin}",
       "headers": { "Authorization": "Bearer ${AGENTORB_KEY:-}" },
       "headersHelper": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/headers.mjs\""
     }

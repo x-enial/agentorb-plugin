@@ -22,7 +22,7 @@ const codeArg = () => {
 };
 
 const me = session();
-const site = serverUrl(me.link).replace(/\/api\/mcp$/, "");
+const site = serverUrl(me.link).replace(/\/api\/mcp(?:\/plugin)?$/, "");
 const say = (s) => process.stdout.write(s + "\n");
 
 const remote = (() => {

@@ -40,7 +40,7 @@ async function mint() {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 5000);
   try {
-    const url = serverUrl(me.link).replace(/\/api\/mcp$/, "/api/agents/token");
+    const url = serverUrl(me.link).replace(/\/api\/mcp(?:\/plugin)?$/, "/api/agents/token");
     const res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { authorization: `Bearer ${me.key}` } });
     if (!res.ok) return null;
     const j = await res.json();

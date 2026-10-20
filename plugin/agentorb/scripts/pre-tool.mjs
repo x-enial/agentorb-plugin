@@ -42,7 +42,7 @@ async function check() {
   } catch {
     /* no fresh cache */
   }
-  const url = serverUrl(me.link).replace(/\/api\/mcp$/, "/api/agents/held");
+  const url = serverUrl(me.link).replace(/\/api\/mcp(?:\/plugin)?$/, "/api/agents/held");
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 3000);
   try {
@@ -81,7 +81,7 @@ async function outboundCheck() {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 4000);
   try {
-    const url = serverUrl(me.link).replace(/\/api\/mcp$/, "/api/agents/outbound");
+    const url = serverUrl(me.link).replace(/\/api\/mcp(?:\/plugin)?$/, "/api/agents/outbound");
     const res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { "content-type": "application/json", authorization: `Bearer ${me.key}` }, body: JSON.stringify({ texts: stringsIn(input.tool_input ?? {}) }) });
     if (res.status === 404) return { ok: true, skipped: true }; // a board without the gate (older server)
     if (!res.ok) return { ok: false, why: `the board answered ${res.status}` };

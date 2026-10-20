@@ -21,7 +21,7 @@ import { liveHere, serverUrl, session } from "./config.mjs";
 
 const me = session();
 const key = me.key;
-const base = serverUrl(me.link).replace(/\/api\/mcp\/?$/, "").replace(/\/$/, "");
+const base = serverUrl(me.link).replace(/\/api\/mcp(?:\/plugin)?\/?$/, "").replace(/\/$/, "");
 const here = dirname(fileURLToPath(import.meta.url));
 const log = (s) => process.stdout.write(`${new Date().toISOString()} ${s}\n`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
