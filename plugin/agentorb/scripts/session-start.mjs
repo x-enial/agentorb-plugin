@@ -184,6 +184,12 @@ if (pageSlug && pinnedProject) {
   const body = pg.json?.body ?? (typeof pg.text === "string" ? pg.text : "");
   if (body && !pg.error) lines.push(`## ${pg.json?.title ?? pack?.page ?? "Your page"} (the owner's, from the board: follow it)\n${String(body).slice(0, 8000)}`);
 }
+// The board's "How we work" page (seeded on every board: what goes out, what needs a go), so a fresh folder isn't working from the repo's docs alone.
+if (pinnedProject && pageSlug !== "how-we-work") {
+  const pg = await call("get_page", { project: pinnedProject.project, page: "how-we-work" });
+  const body = pg.json?.body ?? (typeof pg.text === "string" ? pg.text : "");
+  if (body && !pg.error) lines.push(`## ${pg.json?.title ?? "How we work"} (this board's rules: follow them)\n${String(body).slice(0, 6000)}`);
+}
 if (here.json?.agents?.length) {
   const a = here.json.agents.filter((x) => x.presence !== "offline" && x.id !== here.json.you).slice(0, 8);
   if (a.length) lines.push(`Here now: ${a.map((x) => `${x.name} (${x.state}${x.task?.title ? `: ${x.task.title}` : ""}${x.note ? `, “${x.note}”` : ""})`).join("; ")}.`);

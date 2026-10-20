@@ -112,7 +112,9 @@ export function setUpForRole(root, role, project, codeArg) {
   const md = [
     `# ${role.label} context (written by /agentorb:init)`,
     "",
-    `This agent's role is **${role.label}**. The project's code is at \`${R}\`${role.code === "read" ? ", read-only for this agent" : role.code === "none" ? "; this agent doesn't work in it" : ""}. Everything below is loaded into every session; use it before writing anything about the project.`,
+    `This agent's role is **${role.label}**${role.blurb ? `: ${role.blurb}` : "."} The project's code is at \`${R}\`${role.code === "read" ? ", read-only for this agent" : role.code === "none" ? "; this agent doesn't work in it" : ""}. Everything below is loaded into every session; use it before writing anything about the project.`,
+    "",
+    `What the project is, where it stands and how this team works live on the board, not here: open every session with \`get_brief\` (project \`${project}\`), then \`get_page\` for its "How we work" page and \`my_work\`. Treat the board as the source of truth; when a fact isn't on it or in the files below, ask on the card rather than fill it in.`,
     role.grounding ? "\nEvery draft you submit cites where each part's facts come from (sources: the file, the commit, the card). The board refuses a part without one. When something isn't in these files or the repo history, ask on the card rather than guess." : "",
     "",
     "## Loaded every session",
