@@ -17,7 +17,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { liveHere, serverUrl, session } from "./config.mjs";
+import { LIVE_MS, liveAgoMinutes, liveHere, serverUrl, session } from "./config.mjs";
 
 const me = session();
 const key = me.key;
@@ -147,7 +147,10 @@ while (!stopping) {
     await nap(jitter(ms));
   }
   if (liveHere(me.root)) {
-    log(`work: ${a.why} "${a.what}", but you have a session open in this repo; checking again in 5 min`);
+    // Same agent, same files: while you're active in this repo your session is the agent (its briefing lists this
+    // work); the runner takes over LIVE_MS after your last turn or tool call, or as soon as the session closes.
+    const ago = liveAgoMinutes(me.root) ?? 0;
+    log(`work: ${a.why} "${a.what}", but you were active in this repo ${ago} min ago; the runner resumes ${Math.round(LIVE_MS / 60_000)} min after your last turn or tool call, or when the session closes. Checking again in 5 min`);
     await nap(jitter(5 * 60_000));
     continue;
   }

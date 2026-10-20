@@ -254,7 +254,7 @@ function cronInstall(replace) {
     const err = writeCrontab([...kept, line]);
     if (err) return say(`AgentOrb: couldn't write your crontab (${err}). Nothing changed.`), 1;
     say(`Background runner for ${folder}: installed${had.length ? " (updated the line)" : ""}${replace && hand.length ? ", replacing the line you added by hand" : ""}. Your other crontab lines are unchanged.`);
-    say("cron starts it within a minute and keeps it going (one at a time); it takes work, messages and due routines, and holds off while you have a Claude Code session open in this folder.");
+    say("cron starts it within a minute and keeps it going (one at a time); it takes work, messages and due routines, and holds off while you're active in this folder (it resumes 10 minutes after your last turn or tool call, or as soon as the session closes).");
   }
   if (!inCache && !inHome) say(`Note: this plugin isn't in Claude Code's plugin cache, so the line points at ${here} directly; updates elsewhere won't be picked up.`);
   if (!which("claude")) say("Note: `claude` isn't on your PATH here, so runs can't start. Install Claude Code or add it to PATH, then run install again.");
@@ -395,7 +395,7 @@ function launchdInstall() {
     const r = tool(LAUNCHCTL, ["bootstrap", domain(), plistFile]);
     if (!r.ok) return say(`AgentOrb: wrote ${plistFile} but launchctl couldn't load it (${r.err || r.status}). Try: launchctl bootstrap ${domain()} "${plistFile}"`), 1;
     say(`Background runner for ${folder}: installed (LaunchAgent ${label}). It starts now and at every login, and restarts if it stops.`);
-    say("It takes work, messages and due routines, and holds off while you have a Claude Code session open in this folder.");
+    say("It takes work, messages and due routines, and holds off while you're active in this folder (it resumes 10 minutes after your last turn or tool call, or as soon as the session closes).");
   }
   if (!which("claude")) say("Note: `claude` isn't on your PATH here, so runs can't start. Install Claude Code, then run install again.");
   say(`Log: ${logFile}`);
@@ -495,7 +495,7 @@ function taskInstall() {
   if (!r.ok) return say(`AgentOrb: Task Scheduler didn't take the task (${r.err || r.status}).`), manualSchtasks(), 1;
   if (!s.installed) tool(SCHTASKS, ["/Run", "/TN", taskName]);
   say(`Background runner for ${folder}: ${s.installed ? "already installed (task refreshed)" : `installed (Task Scheduler task "${taskName}")`}. It runs at logon and is checked every minute, one at a time.`);
-  say("It takes work, messages and due routines, and holds off while you have a Claude Code session open in this folder.");
+  say("It takes work, messages and due routines, and holds off while you're active in this folder (it resumes 10 minutes after your last turn or tool call, or as soon as the session closes).");
   if (!which("claude")) say("Note: `claude` isn't on your PATH here, so runs can't start. Install Claude Code, then run install again.");
   say(`Log: ${logFile}`);
   say("Turn it off with /agentorb:runner off.");

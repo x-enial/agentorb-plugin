@@ -122,7 +122,7 @@ if (pack?.key && pack.key !== me.role && me.localDir && pin?.project) {
     /* best effort */
   }
 }
-if (pack?.key) lines.push(`Your role: ${pack.label}.${pack.grounding ? " Every draft part cites its sources (files, commits, cards, links); the board refuses parts without." : ""} Pick up cards on your tracks; others only when asked or assigned.`);
+if (pack?.key) lines.push(`Your role: ${pack.label}.${pack.grounding ? " Every draft part cites its sources (files, commits, cards, links); the board refuses parts without." : ""} Pick up cards on your areas; others only when asked or assigned.`);
 // The context pack must have loaded: a missing file means the agent would work blind, so autopilot stays off.
 const pin2 = join(me.root, "AGENTORB.md");
 const blind = join(homedir(), ".claude", "agentorb", "blind", `${createHash("sha256").update(me.root).digest("hex").slice(0, 16)}`);
@@ -202,5 +202,5 @@ if (!process.env.AGENTORB_HEADLESS && pin) {
     );
 }
 for (const w of warnings) lines.push(`WARNING: ${w} Tell the person this first.`);
-lines.push("Rules: claim_task before working a task, set_status when you start/finish/block, set_card_status (needs-you, with why) for anything that needs a go, and keep the card current. Keys, secrets and customer data never go on the board.");
+lines.push("Rules: claim_task before working a card, set_status when you start/finish/block, ask (go: true) for anything that needs a go and submit_draft for anything that goes out, and keep the card current. Keys, secrets and customer data never go on the board.");
 out(lines.join("\n"));

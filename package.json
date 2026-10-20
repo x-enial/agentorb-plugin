@@ -1,6 +1,6 @@
 {
   "name": "agentorb",
-  "version": "0.32.0",
+  "version": "0.33.0",
   "description": "AgentOrb: connect a folder to its board and keep its agent working (Claude Code or Codex).",
   "type": "module",
   "bin": { "agentorb": "plugin/agentorb/scripts/cli.mjs" },

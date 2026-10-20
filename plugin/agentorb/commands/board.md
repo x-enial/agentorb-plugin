@@ -12,4 +12,4 @@ Then call `get_brief` for that project and `whats_new`. Answer in under 20 lines
 3. **Next**: the next cards, at most five.
 4. **Since last time**: the handful of changes, mentions or queue answers from whats_new that matter.
 
-No preamble. If the board is empty, say so and offer to lay it out from the repo's docs with add_track, add_stop and add_card.
+No preamble. If the board is empty, say so and offer to lay it out from the repo's docs with add_area, add_milestone (only if the work has them) and add_card.

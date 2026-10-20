@@ -166,12 +166,16 @@ export function keyIn(dir) {
   return j && typeof j.key === "string" && j.key.trim().startsWith("ssk_") ? j.key.trim() : null;
 }
 
-/* ---- the live-session marker: the runner doesn't start a run in a repo where you have a session open */
+/* ---- the live-session marker: the runner doesn't start a run in a repo you're active in (LIVE_MS after your last turn or tool call) */
 
 const SESSIONS = join(homedir(), ".claude", "agentorb", "sessions");
 const markerOf = (root) => join(SESSIONS, `${createHash("sha256").update(root).digest("hex").slice(0, 16)}.json`);
-/** A session counts as open for this long after its last sign of life (start, or a stop between turns). */
-export const LIVE_MS = 20 * 60_000;
+/**
+ * A session counts as "you're here" for this long after its last sign of life: its start, the end of a turn, or any
+ * tool call (touchLive, from the PreToolUse hook). The runner stays out of a repo you're active in (same agent, same
+ * files) and takes over this long after you stop; closing the session ends it at once.
+ */
+export const LIVE_MS = 10 * 60_000;
 
 export function markLive(root, sessionId) {
   if (process.env.AGENTORB_HEADLESS) return; // the runner's own runs don't count as you being here
@@ -180,6 +184,27 @@ export function markLive(root, sessionId) {
     writeFileSync(markerOf(root), JSON.stringify({ root, session: sessionId ?? null, at: new Date().toISOString() }));
   } catch {
     /* best effort */
+  }
+}
+/** Refresh the marker from a tool call, at most once a minute (the hook runs on every call). */
+export function touchLive(root) {
+  if (process.env.AGENTORB_HEADLESS) return;
+  try {
+    const path = markerOf(root);
+    if (Date.now() - statSync(path).mtimeMs < 60_000) return;
+    const j = readJson(path);
+    writeFileSync(path, JSON.stringify({ root, session: j?.session ?? null, at: new Date().toISOString() }));
+  } catch {
+    /* no marker yet (not a session-start'd repo): nothing to refresh */
+  }
+}
+/** Minutes since the open session's last sign of life, or null when none is open. */
+export function liveAgoMinutes(root) {
+  try {
+    const ms = Date.now() - statSync(markerOf(root)).mtimeMs;
+    return ms < LIVE_MS ? Math.max(0, Math.round(ms / 60_000)) : null;
+  } catch {
+    return null;
   }
 }
 export function clearLive(root, key, sessionId) {
@@ -225,7 +250,7 @@ export function sameAgentElsewhere(key, sessionId, root) {
     return [];
   }
 }
-/** Is an interactive session open in this repo (seen in the last LIVE_MS)? */
+/** Are you active in this repo (a session's start, turn or tool call within LIVE_MS)? */
 export function liveHere(root) {
   try {
     return Date.now() - statSync(markerOf(root)).mtimeMs < LIVE_MS;

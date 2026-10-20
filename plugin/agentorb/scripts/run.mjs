@@ -44,7 +44,7 @@ if (!key) {
 }
 // You're working here yourself: the board's work waits for you (no second session as the same agent).
 if (!force && liveHere(me.root)) {
-  log("you have a Claude Code session open in this repo; holding off");
+  log("you were active in this repo in the last 10 minutes; holding off until you stop or close the session");
   process.exit(0);
 }
 

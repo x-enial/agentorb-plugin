@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { serverUrl, session } from "./config.mjs";
+import { serverUrl, session, touchLive } from "./config.mjs";
 
 const TTL_MS = 60_000;
 let input = {};
@@ -31,6 +31,8 @@ const tool = String(input.tool_name ?? "");
 if (/^mcp__(plugin_agentorb_)?agentorb__/.test(tool)) process.exit(0);
 
 const me = session();
+// You're here: the runner stays out of this repo while you work in it (config.mjs LIVE_MS).
+touchLive(me.root);
 if (!me.link || !me.key) process.exit(0);
 
 const dir = join(homedir(), ".claude", "agentorb", "held");
