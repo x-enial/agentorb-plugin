@@ -1,9 +1,17 @@
 #!/usr/bin/env node
 /*
- * Connect this repo to its AgentOrb board in one click (0055; run by /agentorb:init, or by hand). It asks the board
+ * Connect this folder to its AgentOrb board in one click (0055; run by /agentorb:init, or by hand). It asks the board
  * for a code and a link, opens the link, and waits while the person approves (which agent, which board; when the
  * repo was acting as another agent, moving that agent's open work here). Then it writes the agent's key into the
- * repo's git-ignored .agentorb.local.json (0600) and the board into .agentorb.json. It never prints the key.
+ * folder's git-ignored .agentorb.local.json (0600) and the board into .agentorb.json. It never prints the key.
+ *
+ * Where the agent lives is decided once the approval says which board (one agent per git root):
+ *   - not inside a git repo (a docs folder, notes, an empty folder): here;
+ *   - inside a git repo whose board is its code (kind codebase, or a board too old to say): the repo, at its git root;
+ *   - inside a git repo whose board is something else (a campaign, ops, agents...): a folder beside the repo, the one
+ *     add-agent makes (<repo>-agents/<role>), set up like an agent outside the code: the repo's docs imported
+ *     read-only, its secrets denied. Nothing is written at the repo's root, and a key already there is left alone, so
+ *     the repo stays free for its own Builder. --code <repo> (add-agent chose this folder) keeps the folder as it is.
  *
  * Exit codes: 0 connected, 2 turned down (or not used), 3 expired, 4 approved from another network: run again with
  * --accept to use it (only if the person here says it was them), 1 anything else.
@@ -12,8 +20,8 @@ import { execFile, execFileSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { createHash } from "node:crypto";
-import { basename, dirname, join, relative } from "node:path";
-import { serverUrl, session, startDir, strayServers } from "./config.mjs";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { freeAgentFolder, ROLES, serverUrl, session, startDir, strayServers, worktreeOf, writeLink } from "./config.mjs";
 import { setUpForRole } from "./role-setup.mjs";
 
 const codeArg = () => {
@@ -140,10 +148,36 @@ if (answer.status !== "approved") {
   process.exit(3);
 }
 
-// The key: the repo's own git-ignored file, readable only by you; with the agent's role (0057) for session start, the
+// Where the agent lives (see the header). The board's kind arrives with the approval, so this is decided here, before
+// anything is written. Inside a git repo whose board isn't its code, the agent's folder goes beside the main checkout
+// (a worktree's agents' folder sits beside the main one too), named for its role, or the board when the role is the
+// general one; a taken name gets -2, -3... as add-agent does.
+const gitRoot = (() => {
+  try {
+    return execFileSync("git", ["-C", me.root, "rev-parse", "--show-toplevel"], { stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).toString().trim() || null;
+  } catch {
+    return null;
+  }
+})();
+const kind = typeof answer.project?.kind === "string" ? answer.project.kind : null;
+const beside = !!gitRoot && !codeArg() && !!kind && kind !== "codebase";
+let home = me.root;
+let repo = null;
+if (beside) {
+  repo = gitRoot;
+  const wt = worktreeOf(repo);
+  if (wt.linked && wt.main) repo = wt.main;
+  const roleKey = answer.role?.key;
+  const word = roleKey && roleKey !== "custom" ? ROLES[roleKey]?.word : null;
+  home = freeAgentFolder(repo, word || answer.project.slug);
+  mkdirSync(home, { recursive: true });
+}
+const engine = (process.env.AGENTORB_VENDOR || "").toLowerCase() === "codex" ? "codex" : null;
+
+// The key: the folder's own git-ignored file, readable only by you; with the agent's role (0057) for session start, the
 // record of the permission rules the last setup wrote (`settings`), carried over so role-setup can take them out, and
 // the send servers the person allowed for live sessions (`sendAllowed`, 0096), carried over so they stay theirs.
-const localFile = join(me.root, ".agentorb.local.json");
+const localFile = join(home, ".agentorb.local.json");
 const priorRules = (() => {
   try {
     const j = JSON.parse(readFileSync(localFile, "utf8"));
@@ -154,28 +188,42 @@ const priorRules = (() => {
 })();
 writeFileSync(localFile, JSON.stringify({ key: answer.key, ...(answer.role ? { role: answer.role.key } : {}), ...(answer.page ? { page: answer.page.slug } : {}), ...priorRules }, null, 2) + "\n", { mode: 0o600 });
 chmodSync(localFile, 0o600);
-const ignore = join(me.root, ".gitignore");
+const ignore = join(home, ".gitignore");
 const ignored = existsSync(ignore) && readFileSync(ignore, "utf8").split(/\r?\n/).some((l) => l.trim() === ".agentorb.local.json");
 if (!ignored) appendFileSync(ignore, `${existsSync(ignore) && !readFileSync(ignore, "utf8").endsWith("\n") ? "\n" : ""}.agentorb.local.json\n`);
-// The board link (committed, so every worktree and teammate shares it).
-const linkFile = join(me.root, ".agentorb.json");
+// The board link (committed, so every worktree and teammate shares it). With --engine codex (cli.mjs, add-agent.mjs:
+// AGENTORB_VENDOR=codex) the link also says the folder's runs use Codex.
+const linkFile = join(home, ".agentorb.json");
 if (answer.project) {
-  const link = { project: answer.project.slug, workspace: answer.workspace.slug, url: site };
-  const had = existsSync(linkFile) ? readFileSync(linkFile, "utf8") : "";
-  if (!had || JSON.parse(had || "{}").project !== link.project) writeFileSync(linkFile, JSON.stringify(link, null, 2) + "\n");
+  const link = { project: answer.project.slug, workspace: answer.workspace.slug, url: site, ...(engine ? { engine } : {}) };
+  let had = null;
+  try {
+    had = JSON.parse(readFileSync(linkFile, "utf8"));
+  } catch {
+    /* none, or not JSON: written fresh */
+  }
+  if (!had || typeof had !== "object" || had.project !== link.project) {
+    rmSync(linkFile, { force: true });
+    writeLink(home, link);
+  } else if (engine && had.engine !== engine) writeFileSync(linkFile, JSON.stringify({ ...had, engine }, null, 2) + "\n");
 }
 
-const pack = answer.role ? setUpForRole(me.root, answer.role, answer.project?.slug, codeArg()) : null;
+// The role's setup: inside the code, its limits; beside it, the context pack (the repo's docs read-only) and the limits.
+const pack = answer.role ? setUpForRole(home, answer.role, answer.project?.slug, codeArg() ?? (beside ? repo : undefined)) : null;
 
-say(`Connected: ${basename(me.root)} is now "${answer.agent.name}" on ${answer.project ? `the ${answer.project.name} board` : "your board"} (${answer.workspace.name}).`);
-say("The key is in .agentorb.local.json (git-ignored, readable only by you); .agentorb.json names the board.");
-if (subfolder) say(`Both files are at the repo's root, not in ${subfolder}: one agent per git root is the rule today, so this agent is the whole repo's. For an agent of its own for one part, use add-agent (a folder beside the repo).`);
+if (beside) say(`This board isn't this repo's code, so the agent lives beside it: ${home}. Start Claude Code there; this repo stays free for its own Builder.`);
+say(`Connected: ${basename(home)} is now "${answer.agent.name}" on ${answer.project ? `the ${answer.project.name} board` : "your board"} (${answer.workspace.name}).`);
+say(`The key is in ${beside ? `${home}${process.platform === "win32" ? "\\" : "/"}` : ""}.agentorb.local.json (git-ignored, readable only by you); .agentorb.json${beside ? " there" : ""} names the board.`);
+if (engine) say("This folder's runs use Codex.");
+if (subfolder && !beside) say(`Both files are at the repo's root, not in ${subfolder}: one agent per git root is the rule today, so this agent is the whole repo's. For an agent of its own for one part, use add-agent (a folder beside the repo).`);
 if (answer.role) say(`Role: ${answer.role.label}.${answer.page ? ` Its ${answer.page.title} page on the board is printed into every session.` : ""}`);
 if (pack?.note) say(pack.note);
 if (pack?.summary) say(pack.summary);
 if (answer.replaced) {
   const r = answer.replaced;
   say(`${r.name}'s ${r.cards} open card${r.cards === 1 ? "" : "s"} on its areas and ${r.routines} routine${r.routines === 1 ? "" : "s"} moved to it; messages to ${r.name} reach it too.${r.rerouted ? ` ${r.rerouted} card${r.rerouted === 1 ? "" : "s"} outside its role went to the agents whose roles cover them.` : ""}${r.unassigned ? ` ${r.unassigned} card${r.unassigned === 1 ? "" : "s"} outside its role ${r.unassigned === 1 ? "is" : "are"} unassigned (no agent's role covers ${r.unassigned === 1 ? "its area" : "their areas"}): assign ${r.unassigned === 1 ? "it" : "them"} on the board.` : ""}${r.retired ? ` ${r.name} is retired.` : ""}`);
+  // The agent beside the repo never replaces the repo's own: a Retire ticked on the page took the root's agent away.
+  if (r.retired && beside && me.keySource === "repo") say(`${r.name} was this repo's own agent (its key is at the repo's root, untouched). If the repo still needs it, restore it from Settings → Agents within 30 days, or run /agentorb:init in the repo again for a new one.`);
   // A retired key left in the shell would only fail now: point at the lines, so they can come out.
   if (r.retired && me.keySource === "env") {
     const spots = [join(homedir(), ".bashrc"), join(homedir(), ".zshrc"), join(homedir(), ".profile"), join(homedir(), ".config", "agentorb", "env")].flatMap((f) => {
@@ -188,6 +236,9 @@ if (answer.replaced) {
     if (spots.length) say(`Your shell still sets AGENTORB_KEY to ${r.name}'s retired key (${spots.join(", ")}). Those lines can come out.`);
   }
 }
-for (const x of strayServers(me.root)) say(`This repo also has an AgentOrb MCP server set up by hand ("${x.name}", ${x.scope} scope) with an older key: it would still act as that agent. Remove it with: ${x.remove}`);
-say("Restart Claude Code in this repo (or /mcp, then reconnect agentorb) so the connection uses the new agent.");
+for (const x of strayServers(home)) say(`This folder also has an AgentOrb MCP server set up by hand ("${x.name}", ${x.scope} scope) with an older key: it would still act as that agent. Remove it with: ${x.remove}`);
+if (beside) {
+  say(`Open it: cd "${resolve(home)}" && ${engine === "codex" ? "codex" : "claude"}`);
+  say(engine === "codex" ? "Keep it working while you're away: npx -y github:x-enial/agentorb-plugin runner on (in that folder)." : "Keep it working while you're away: /agentorb:runner on, in a session there.");
+} else say("Restart Claude Code in this folder (or /mcp, then reconnect agentorb) so the connection uses the new agent.");
 

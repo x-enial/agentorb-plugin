@@ -16,10 +16,10 @@
  * Exit codes: connect.mjs's (0 connected, 2 turned down, 3 expired, 4 approved from another network), 1 anything else.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { worktreeOf } from "./config.mjs";
+import { freeAgentFolder, ROLES, worktreeOf, writeLink } from "./config.mjs";
 
 const say = (s = "") => process.stdout.write(s + "\n");
 const here = dirname(fileURLToPath(import.meta.url));
@@ -29,25 +29,7 @@ const opt = (name) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 
-/**
- * Roles that edit code get their own worktree (their own checkout and branch); the rest read the code from beside it.
- * A copy of the app's list (src/lib/agents/roles.ts: keys, labels and `code`); when a role is added or renamed there,
- * change it here too. The board is the one that decides what a role may do; this only picks the folder's shape.
- */
-const ROLES = {
-  builder: { label: "Builder", word: "builder", code: "edit" },
-  reviewer: { label: "Reviewer / QA", word: "reviewer", code: "read" },
-  writer: { label: "Writer", word: "writer", code: "read" },
-  marketer: { label: "Marketer / Growth", word: "marketing", code: "read" },
-  support: { label: "Support / Community", word: "support", code: "read" },
-  researcher: { label: "Researcher / Analyst", word: "research", code: "read" },
-  operator: { label: "Operator", word: "ops", code: "read" },
-  designer: { label: "Designer", word: "design", code: "read" },
-  coordinator: { label: "Coordinator", word: "coordinator", code: "none" },
-  assistant: { label: "Assistant", word: "assistant", code: "none" },
-  custom: { label: "General", word: "agent", code: "edit" },
-};
-
+// The roles (keys, labels, folder words, whether they edit code) are ROLES in config.mjs, shared with connect.mjs.
 const roleKey = (opt("role") || "").toLowerCase();
 const role = ROLES[roleKey];
 if (!role) {
@@ -83,14 +65,10 @@ if (!link?.project) {
   process.exit(1);
 }
 
-const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "agent";
-const home = join(dirname(repo), `${basename(repo)}-agents`);
-const want = slug(opt("folder") || role.word);
-let dir = join(home, want);
-for (let i = 2; existsSync(dir); i++) dir = join(home, `${want}-${i}`);
+const dir = freeAgentFolder(repo, opt("folder") || role.word);
 const worktree = args.includes("--worktree") || (!args.includes("--plain") && role.code === "edit");
 
-mkdirSync(home, { recursive: true });
+mkdirSync(dirname(dir), { recursive: true });
 if (worktree) {
   const branch = `agent/${basename(dir)}`;
   try {
@@ -105,14 +83,16 @@ if (worktree) {
   say(`Made ${dir}: this agent's own folder. It reads ${basename(repo)} read-only, beside it.`);
 }
 // The board link (a worktree may already have it from the repo; a plain folder gets a copy).
-if (!existsSync(join(dir, ".agentorb.json"))) writeFileSync(join(dir, ".agentorb.json"), JSON.stringify({ project: link.project, ...(link.workspace ? { workspace: link.workspace } : {}), ...(link.url ? { url: link.url } : {}) }, null, 2) + "\n");
+writeLink(dir, link);
 
 const name = opt("name") || `${link.project.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} ${role.label.split(" /")[0]}`;
 say("");
+// connect.mjs finds its folder from CLAUDE_PROJECT_DIR, then PWD (config.mjs startDir), both of which still name the
+// repo here: a cwd alone would leave the key at the repo's root. Both say the new folder.
 const r = spawnSync(process.execPath, [join(here, "connect.mjs"), "--code", repo], {
   cwd: dir,
   stdio: "inherit",
-  env: { ...process.env, AGENTORB_SUGGEST_ROLE: roleKey, AGENTORB_SUGGEST_NAME: name.slice(0, 80), ...(engine === "codex" ? { AGENTORB_VENDOR: "codex" } : {}), AGENTORB_KEY: "" },
+  env: { ...process.env, CLAUDE_PROJECT_DIR: dir, PWD: dir, AGENTORB_SUGGEST_ROLE: roleKey, AGENTORB_SUGGEST_NAME: name.slice(0, 80), ...(engine === "codex" ? { AGENTORB_VENDOR: "codex" } : {}), AGENTORB_KEY: "" },
 });
 const code = r.status ?? 1;
 if (code !== 0) {
@@ -120,15 +100,7 @@ if (code !== 0) {
   else say(`The folder is there (${dir}); run connect in it again when you're ready.`);
   process.exit(code);
 }
-if (engine === "codex") {
-  try {
-    const f = join(dir, ".agentorb.json");
-    const j = JSON.parse(readFileSync(f, "utf8"));
-    writeFileSync(f, JSON.stringify({ ...j, engine: "codex" }, null, 2) + "\n");
-  } catch {
-    /* connect wrote it; leave it */
-  }
-}
+// With --engine codex, connect.mjs (AGENTORB_VENDOR=codex) marks the folder's link `engine: "codex"` itself.
 say("");
 say(`Open it: cd "${resolve(dir)}" && ${engine === "codex" ? "codex" : "claude"}`);
 say(engine === "codex" ? "Keep it working while you're away: npx -y github:x-enial/agentorb-plugin runner on (in that folder)." : "Keep it working while you're away: /agentorb:runner on, in a session there.");

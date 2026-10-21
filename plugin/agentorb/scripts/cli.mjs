@@ -74,12 +74,14 @@ if (cmd === "connect") {
   const code = node("connect.mjs", args.filter((a, i) => a !== "--engine" && args[i - 1] !== "--engine"), engine === "codex" ? { AGENTORB_VENDOR: "codex" } : {});
   if (code === 4) say("If that was you: npx -y github:x-enial/agentorb-plugin connect --accept");
   if (code !== 0) process.exit(code);
-  if (setEngine(engine)) say(`This folder's runs use ${engine === "codex" ? "Codex" : "Claude Code"}.`);
+  // With --engine codex, connect.mjs marks the link itself (the agent's folder may be beside the repo, not here); for
+  // Claude a stale codex marker in this folder's link is cleared.
+  if (engine === "claude" && setEngine(engine)) say("This folder's runs use Claude Code.");
   if (engine === "codex") {
     say("");
-    say("For your own Codex sessions here, connect Codex to AgentOrb once (pick the same agent under \"One you have\"):");
+    say("For your own Codex sessions in the agent's folder, connect Codex to AgentOrb once (pick the same agent under \"One you have\"):");
     say("  codex mcp add agentorb --url https://app.agent-orb.com/api/mcp");
-    say("Then keep it working while you're away:");
+    say("Then keep it working while you're away (in that folder):");
     say("  npx -y github:x-enial/agentorb-plugin runner on");
   }
   process.exit(0);

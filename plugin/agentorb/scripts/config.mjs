@@ -19,7 +19,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export function startDir() {
@@ -294,6 +294,51 @@ export function worktreeOf(root) {
   } catch {
     return { linked: false, main: null };
   }
+}
+
+/* ---- an agent's folder beside a repo: add-agent.mjs (every extra agent of a codebase), and connect.mjs when the
+ * board approved isn't the repo's code (one agent per git root: the repo stays free for its own Builder). */
+
+/**
+ * The roles and the folder each gets. A copy of the app's list (src/lib/agents/roles.ts: keys, labels and `code`);
+ * when a role is added or renamed there, change it here too. The board decides what a role may do; this only names
+ * the folder (`word`) and picks its shape (`code` "edit": a worktree of its own, from add-agent).
+ */
+export const ROLES = {
+  builder: { label: "Builder", word: "builder", code: "edit" },
+  reviewer: { label: "Reviewer / QA", word: "reviewer", code: "read" },
+  writer: { label: "Writer", word: "writer", code: "read" },
+  marketer: { label: "Marketer / Growth", word: "marketing", code: "read" },
+  support: { label: "Support / Community", word: "support", code: "read" },
+  researcher: { label: "Researcher / Analyst", word: "research", code: "read" },
+  operator: { label: "Operator", word: "ops", code: "read" },
+  designer: { label: "Designer", word: "design", code: "read" },
+  coordinator: { label: "Coordinator", word: "coordinator", code: "none" },
+  assistant: { label: "Assistant", word: "assistant", code: "none" },
+  custom: { label: "General", word: "agent", code: "edit" },
+};
+
+/** A folder name from a role word or a board slug: lowercase, dashes, at most 40 characters. */
+export const folderSlug = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "agent";
+
+/** The folder that holds a repo's extra agents: `<repo-parent>/<repo>-agents`. */
+export const agentsHome = (repo) => join(dirname(repo), `${basename(repo)}-agents`);
+
+/** A free folder for a new agent beside `repo`: `<repo>-agents/<want>`, or `<want>-2`, `-3`... when taken. Not made. */
+export function freeAgentFolder(repo, want) {
+  const home = agentsHome(repo);
+  const name = folderSlug(want);
+  let dir = join(home, name);
+  for (let i = 2; existsSync(dir); i++) dir = join(home, `${name}-${i}`);
+  return dir;
+}
+
+/** Write a folder's board link (.agentorb.json: project, workspace, url) unless it has one already. Returns whether it wrote. */
+export function writeLink(dir, link) {
+  const file = join(dir, ".agentorb.json");
+  if (existsSync(file)) return false;
+  writeFileSync(file, JSON.stringify({ project: link.project, ...(link.workspace ? { workspace: link.workspace } : {}), ...(link.url ? { url: link.url } : {}), ...(link.engine ? { engine: link.engine } : {}) }, null, 2) + "\n");
+  return true;
 }
 
 /** The key in a folder's .agentorb.local.json, or null. */
