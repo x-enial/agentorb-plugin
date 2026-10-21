@@ -140,13 +140,14 @@ if (answer.status !== "approved") {
   process.exit(3);
 }
 
-// The key: the repo's own git-ignored file, readable only by you; with the agent's role (0057) for session start, and
-// the record of the permission rules the last setup wrote (`settings`), carried over so role-setup can take them out.
+// The key: the repo's own git-ignored file, readable only by you; with the agent's role (0057) for session start, the
+// record of the permission rules the last setup wrote (`settings`), carried over so role-setup can take them out, and
+// the send servers the person allowed for live sessions (`sendAllowed`, 0096), carried over so they stay theirs.
 const localFile = join(me.root, ".agentorb.local.json");
 const priorRules = (() => {
   try {
     const j = JSON.parse(readFileSync(localFile, "utf8"));
-    return j?.settings && typeof j.settings === "object" ? { settings: j.settings } : {};
+    return { ...(j?.settings && typeof j.settings === "object" ? { settings: j.settings } : {}), ...(Array.isArray(j?.sendAllowed) && j.sendAllowed.length ? { sendAllowed: j.sendAllowed } : {}) };
   } catch {
     return {};
   }

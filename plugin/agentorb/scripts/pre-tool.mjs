@@ -8,16 +8,24 @@
  * The outbound gate (0054): a tool whose name says it sends, posts or publishes (mcp__<server>__send_message, reply,
  * post_message...; AGENTORB_OUTBOUND overrides the pattern) runs only when the board confirms one of the strings it
  * was given is an approved, finished draft part, word for word, and every address in the rest is one that part was
- * approved for. It fails closed. AGENTORB_OUTBOUND_GATE=off turns it off on this machine.
+ * approved for. AGENTORB_OUTBOUND_GATE=off turns it off on this machine.
+ *
+ * Headless or live (0096): the runner's runs (AGENTORB_HEADLESS=1, set by run.mjs) keep the gate whole: approved text
+ * only, and it fails closed when the board can't be reached. In a live session the person is right there, so their own
+ * send tools are theirs: a server on the folder's allowlist (.agentorb.local.json "sendAllowed": the <server> part of
+ * mcp__<server>__<tool>, written by role setup for the repo's own Slack/Gmail/... servers or by scripts/allow-send.mjs)
+ * goes through without asking the board; any other server is still gated, and the block says how to allow it. A board
+ * that can't be reached blocks headless and lets a live session through with a one-line warning to the person.
  *
  * Cheap: asks /api/agents/held at most once a minute (cached in ~/.claude/agentorb/held/), only in a repo linked to a
- * board with a key. A board that can't be reached never blocks work (fails open). Never prints the key.
+ * board with a key. A board that can't be reached never blocks work (the hold check fails open). Never prints the key.
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { linkedNearby, serverUrl, session, touchLive } from "./config.mjs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { headless, linkedNearby, OUTBOUND_RE, serverOfTool, serverUrl, session, touchLive } from "./config.mjs";
 
 const TTL_MS = 60_000;
 let input = {};
@@ -74,7 +82,7 @@ async function check() {
 /* ---- the outbound gate (0054): a tool that sends, posts or publishes runs only with an approved draft's exact text */
 
 // mcp__<server>__<tool>: a tool whose name says it sends something out. Drafts (create_draft) don't send.
-const OUTBOUND = process.env.AGENTORB_OUTBOUND ? new RegExp(process.env.AGENTORB_OUTBOUND, "i") : /^mcp__.+__(?:send|reply|forward|post|publish|tweet|share|send_[a-z_]+|post_[a-z_]+|publish_[a-z_]+|[a-z_]+_send|[a-z_]+_post_message|create_post|create_tweet|reply_[a-z_]+)$/i;
+const OUTBOUND = process.env.AGENTORB_OUTBOUND ? new RegExp(process.env.AGENTORB_OUTBOUND, "i") : OUTBOUND_RE;
 
 function stringsIn(v, out = [], depth = 0) {
   if (out.length >= 50 || depth > 6) return out;
@@ -91,10 +99,11 @@ async function outboundCheck() {
     const url = serverUrl(me.link).replace(/\/api\/mcp(?:\/plugin)?$/, "/api/agents/outbound");
     const res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { "content-type": "application/json", authorization: `Bearer ${me.key}` }, body: JSON.stringify({ texts: stringsIn(input.tool_input ?? {}) }) });
     if (res.status === 404) return { ok: true, skipped: true }; // a board without the gate (older server)
-    if (!res.ok) return { ok: false, why: `the board answered ${res.status}` };
+    // 5xx: the board is there but couldn't answer the question; counts as unreachable (a 4xx is an answer: not approved, or not this key).
+    if (!res.ok) return { ok: false, unreachable: res.status >= 500, why: `the board answered ${res.status}` };
     return await res.json();
   } catch {
-    return { ok: false, why: "the board couldn't be reached to confirm it is approved" };
+    return { ok: false, unreachable: true, why: "the board couldn't be reached to confirm it is approved" };
   } finally {
     clearTimeout(t);
   }
@@ -107,11 +116,22 @@ const deny = (reason) => {
 
 const state = await check();
 if (!state?.held && OUTBOUND.test(tool) && process.env.AGENTORB_OUTBOUND_GATE !== "off") {
-  // Fails closed: when the board can't confirm, nothing goes out.
+  const live = !headless();
+  const server = serverOfTool(tool);
+  // Live session, the person's own server (the folder's allowlist): theirs to use; the board isn't asked.
+  if (live && server && me.sendAllowed.some((s) => s.toLowerCase() === server.toLowerCase())) process.exit(0);
   const r = await outboundCheck();
+  if (r.ok) process.exit(0);
+  // Live session, board unreachable: it goes out on the person's say-so, and they are told so. Headless fails closed.
+  if (live && r.unreachable) {
+    process.stdout.write(JSON.stringify({ systemMessage: `AgentOrb couldn't check the board; ${tool} went out on your say-so.` }));
+    process.exit(0);
+  }
   const why = String(r.why ?? "it isn't approved").replace(/([^.!?])$/, "$1.");
-  if (!r.ok) deny(`AgentOrb outbound gate stopped ${tool}: ${why} Use get_approved on the card and send its text exactly, to the approved recipients; anything new goes to the person first with submit_draft.`);
-  process.exit(0);
+  const allowCmd = server ? `node "${join(dirname(fileURLToPath(import.meta.url)), "allow-send.mjs")}" ${server}` : null;
+  // Live: say how the person makes this server theirs (the runner stays gated by the board either way).
+  const hint = live && allowCmd ? ` This is a live session: if ${server} is your own, allow it for live sessions here with \`${allowCmd}\` (the background runner still only sends text approved on the board).` : "";
+  deny(`AgentOrb outbound gate stopped ${tool}: ${why} Use get_approved on the card and send its text exactly, to the approved recipients; anything new goes to the person first with submit_draft.${hint}`);
 }
 if (state?.held) {
   process.stdout.write(

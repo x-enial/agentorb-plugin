@@ -15,10 +15,17 @@
  * name, so mcp__*__send_message covers that tool on every server (allow globs need a literal server, deny globs don't);
  * `//path` is an absolute path (`/path` is relative to the settings file); Write(path) rules are never consulted (Edit
  * covers edits and new files; a Read deny blocks writes there too).
+ *
+ * The person's own send tools (0096): inside the code folder, a repo that has its own Slack, Gmail, Discord... MCP
+ * server (.mcp.json, or a settings file that enables or allows one) gets no send/post deny rules at all: those tools
+ * are the person's, for when they ask in a live session. Their servers are recorded in .agentorb.local.json under
+ * `sendAllowed`, so the outbound gate (pre-tool.mjs) agrees; the background runner still only sends approved text.
+ * An agent folder beside the repo keeps the deny rules as before.
  */
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { OUTBOUND_RE, sendAllowedIn, serverOfTool, writeSendAllowed } from "./config.mjs";
 
 
 function isGitRepo(dir) {
@@ -192,6 +199,39 @@ export function mergeSettings(file, add = {}, remove = {}) {
 
 const globRe = (p) => new RegExp("^" + p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$");
 
+// An MCP server whose name says it sends: a chat, mail or social service (x only as a whole word: mcp__x__post, "x-api").
+const SENDING_NAME = /slack|gmail|discord|mail|twitter|linkedin|telegram|whatsapp|sendgrid|resend|postmark/i;
+const sendingName = (name) => SENDING_NAME.test(name) || String(name).toLowerCase().split(/[^a-z0-9]+/).includes("x");
+
+/**
+ * The repo's own sending servers (0096): MCP servers configured in the folder's .mcp.json or enabled in its
+ * .claude/settings.json / settings.local.json whose names say they send, plus the server of any send-shaped tool
+ * (mcp__<server>__send_message...) the person explicitly allowed there. Names only; nothing else in those files is read.
+ */
+export function ownSendingServers(dir) {
+  const read = (f) => {
+    try {
+      return JSON.parse(readFileSync(join(dir, f), "utf8"));
+    } catch {
+      return null;
+    }
+  };
+  const out = [];
+  const add = (s) => {
+    if (typeof s === "string" && /^[A-Za-z0-9_.-]{1,100}$/.test(s) && !out.includes(s)) out.push(s);
+  };
+  for (const name of Object.keys(read(".mcp.json")?.mcpServers ?? {})) if (sendingName(name)) add(name);
+  for (const f of [".claude/settings.json", ".claude/settings.local.json"]) {
+    const j = read(f);
+    for (const name of Array.isArray(j?.enabledMcpjsonServers) ? j.enabledMcpjsonServers : []) if (sendingName(name)) add(name);
+    for (const a of Array.isArray(j?.permissions?.allow) ? j.permissions.allow : []) {
+      if (typeof a !== "string" || !OUTBOUND_RE.test(a) || a.includes("*")) continue;
+      add(serverOfTool(a)); // an explicit allow for a send-shaped tool: its server is theirs
+    }
+  }
+  return out;
+}
+
 /**
  * The person's own explicit allows for tools our deny list names: a full tool name (mcp__<server>__<tool>, no glob) in
  * the folder's settings.json or settings.local.json that a deny pattern would match. Deny wins over allow in Claude
@@ -232,7 +272,7 @@ export function permissionsSummary(result, root) {
       if (w.kept.length) lines.push(`Kept your allow for ${w.kept.join(", ")}: not denied here, so your own use of ${w.kept.length === 1 ? "it" : "them"} still works.`);
       lines.push(`To change them, open ${w.file}; AgentOrb only ever removes or rewrites the rules it added (listed in .agentorb.local.json under "settings").`);
     } else if (w.removed) {
-      lines.push(`AgentOrb took its ${w.removed} earlier permission rule${w.removed === 1 ? "" : "s"} out of ${rel(w.file)} (this role doesn't need them); yours are untouched.`);
+      lines.push(`AgentOrb took its ${w.removed} earlier permission rule${w.removed === 1 ? "" : "s"} out of ${rel(w.file)} (this setup doesn't need them); yours are untouched.`);
     }
   }
   return lines.join("\n");
@@ -252,11 +292,18 @@ export function setUpForRole(root, role, project, codeArg, localFile = join(root
   let R = null;
   if (code?.inside) {
     // Working in the code itself: only the role's limits, in the git-ignored local settings.
-    if (!role.send) {
+    // The repo's own Slack/Gmail/... servers (0096): no send/post deny rules here at all (they would take the person's
+    // own tools away), and their names go on the gate's live-session allowlist. The runner is still gated by the board.
+    const yours = ownSendingServers(me.root);
+    if (yours.length) {
+      const had = sendAllowedIn(dirname(localFile));
+      writeSendAllowed(dirname(localFile), [...had, ...yours.filter((s) => !had.some((h) => h.toLowerCase() === s.toLowerCase()))]);
+      note = `Your ${yours.join(", ")} tools stay yours in live sessions; the runner still only sends approved text.`;
+    } else if (!role.send) {
       const { deny, kept } = keptAllows(me.root, SEND_TOOLS, []);
       plan.set(join(me.root, ".claude", "settings.local.json"), { rules: { deny }, groups: ["send/post tools: off"], kept });
-    }
-    note = role.send ? null : "Its send and post tools are off in this folder (its role doesn't send).";
+      note = "Its send and post tools are off in this folder (its role doesn't send).";
+    } else note = null;
   } else if (!code) {
     note = `I couldn't find this board's code folder next to this one. If it has one, run this again with --code /path/to/it, so the agent loads the project's context.`;
   } else {

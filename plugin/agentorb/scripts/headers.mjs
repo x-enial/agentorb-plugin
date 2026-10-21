@@ -11,13 +11,23 @@
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { serverUrl, session } from "./config.mjs";
 
 const me = session();
 // 0075: this folder's board (the nearest .agentorb.json): the server defaults tools, my_work and whats_new to it.
 const board = typeof me.link?.project === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(me.link.project) ? { "x-agentorb-project": me.link.project } : {};
-const out = (h) => process.stdout.write(JSON.stringify({ ...h, ...board }));
+// The plugin's version, so a suggestion an agent sends (suggest_to_agentorb) says which plugin it ran on.
+const plugin = (() => {
+  try {
+    const v = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", ".claude-plugin", "plugin.json"), "utf8")).version;
+    return typeof v === "string" && /^[0-9][0-9A-Za-z.-]{0,30}$/.test(v) ? { "x-agentorb-plugin": v } : {};
+  } catch {
+    return {};
+  }
+})();
+const out = (h) => process.stdout.write(JSON.stringify({ ...h, ...board, ...plugin }));
 if (me.keySource !== "repo") {
   out({});
   process.exit(0);

@@ -7,11 +7,13 @@
  *   it isn't on a board: the plugin stays quiet there (no briefing, no autopilot).
  * - The key: .agentorb.local.json at the repo root ({ "key": "ssk_..." }, git-ignored: this repo's own agent), else
  *   AGENTORB_KEY from the environment (one agent for every repo).
+ * - Headless or live: the runner (run.mjs) exports AGENTORB_HEADLESS=1 before starting `claude`/`codex`; without it the
+ *   session has a person in it (headless()). The outbound gate is stricter headless (pre-tool.mjs).
  *
  * Never prints the key.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -118,15 +120,62 @@ export function session() {
       const j = readJson(join(d, ".agentorb.local.json"));
       if (j && typeof j.key === "string" && j.key.trim().startsWith("ssk_")) {
         local = j.key.trim();
-        // 0057: the agent's role and its page, as /agentorb:init (or session start) last set the folder up.
-        extra = { role: typeof j.role === "string" ? j.role : null, page: typeof j.page === "string" ? j.page : null };
+        // 0057: the agent's role and its page, as /agentorb:init (or session start) last set the folder up; and the MCP
+        // servers whose send tools are the person's own in live sessions (sendAllowed, see sendAllowedOf).
+        extra = { role: typeof j.role === "string" ? j.role : null, page: typeof j.page === "string" ? j.page : null, sendAllowed: sendAllowedOf(j) };
         home = d;
       }
     }
   }
   const env = process.env.AGENTORB_KEY?.trim() || null;
   const key = local ?? env;
-  return { root, link, key, keySource: local ? "repo" : env ? "env" : null, role: extra?.role ?? null, page: extra?.page ?? null, localDir: local ? home : null };
+  return { root, link, key, keySource: local ? "repo" : env ? "env" : null, role: extra?.role ?? null, page: extra?.page ?? null, localDir: local ? home : null, sendAllowed: extra?.sendAllowed ?? [] };
+}
+
+/** The runner's runs (run.mjs exports AGENTORB_HEADLESS=1): no person is watching, so nothing goes out on anyone's say-so. */
+export const headless = () => !!process.env.AGENTORB_HEADLESS;
+
+/* ---- send tools that are the person's own in live sessions (.agentorb.local.json "sendAllowed") */
+
+/**
+ * The gate's default pattern for a tool that sends, posts or publishes (mcp__<server>__send_message, reply,
+ * post_message...). pre-tool.mjs applies it (AGENTORB_OUTBOUND overrides it there); role-setup.mjs uses it to see
+ * whether the person's own allow rules name such a tool.
+ */
+export const OUTBOUND_RE = /^mcp__.+__(?:send|reply|forward|post|publish|tweet|share|send_[a-z_]+|post_[a-z_]+|publish_[a-z_]+|[a-z_]+_send|[a-z_]+_post_message|create_post|create_tweet|reply_[a-z_]+)$/i;
+
+/** The server part of an MCP tool name (mcp__<server>__<tool>), or null for anything else. */
+export const serverOfTool = (tool) => /^mcp__(.+?)__/.exec(String(tool))?.[1] ?? null;
+
+const cleanServers = (list) => (Array.isArray(list) ? [...new Set(list.filter((s) => typeof s === "string" && /^[A-Za-z0-9_.-]{1,100}$/.test(s)))] : []);
+/** The `sendAllowed` list in a parsed .agentorb.local.json: MCP server names (the middle of mcp__<server>__<tool>). */
+export const sendAllowedOf = (j) => cleanServers(j?.sendAllowed);
+/** The list in a folder's .agentorb.local.json (nothing else in the file is read out). */
+export const sendAllowedIn = (dir) => sendAllowedOf(readJson(join(dir, ".agentorb.local.json")));
+/**
+ * Set a folder's sendAllowed list, keeping everything else in .agentorb.local.json as it is (the key is never printed
+ * or moved). Only when the file exists: connect.mjs makes it, with the key, first. Returns the list written, or null.
+ */
+export function writeSendAllowed(dir, list) {
+  const file = join(dir, ".agentorb.local.json");
+  if (!existsSync(file)) return null;
+  let j;
+  try {
+    j = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+  if (!j || typeof j !== "object" || Array.isArray(j)) return null;
+  const next = cleanServers(list);
+  if (next.length) j.sendAllowed = next;
+  else delete j.sendAllowed;
+  writeFileSync(file, JSON.stringify(j, null, 2) + "\n", { mode: 0o600 });
+  try {
+    chmodSync(file, 0o600);
+  } catch {
+    /* best effort */
+  }
+  return next;
 }
 
 /**

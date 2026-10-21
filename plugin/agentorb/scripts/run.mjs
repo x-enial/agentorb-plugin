@@ -186,7 +186,8 @@ const every = Number(process.env.AGENTORB_RUN_EVERY);
 if (routine) tell({ started: true });
 else tell({ started: true, task: w?.suggestion?.id, ...(Number.isFinite(every) && every >= 60 ? { every: Math.floor(every) } : {}) });
 let told = 0;
-// AGENTORB_HEADLESS: this run's own hooks don't mark the repo as having you in it.
+// AGENTORB_HEADLESS: this run's own hooks don't mark the repo as having you in it, and the outbound gate (pre-tool.mjs)
+// stays whole: send/post tools only with text approved on the board, blocked when the board can't be reached (0096).
 // The folder's code folders (0057 role setup writes them as additionalDirectories): passed explicitly, since project
 // settings that grant access only apply once a folder is trusted. For Claude Code the deny rules apply regardless
 // (Edit/Write on the folder for a read-only role). Codex has no such rules: `--add-dir` under workspace-write makes
