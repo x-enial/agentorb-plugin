@@ -9,6 +9,9 @@
  *   AGENTORB_KEY from the environment (one agent for every repo).
  * - Headless or live: the runner (run.mjs) exports AGENTORB_HEADLESS=1 before starting `claude`/`codex`; without it the
  *   session has a person in it (headless()). The outbound gate is stricter headless (pre-tool.mjs).
+ * - The gate's switches (0103): a folder with its own key is relaxed only by its own git-ignored .agentorb.local.json
+ *   ("sendAllowed", "gate": "off"; allow-send.mjs writes both), never by the environment, which a cloned repo's committed
+ *   .claude/settings.json can set (AGENTORB_OUTBOUND_GATE=off, AGENTORB_OUTBOUND). See gateOff() and outboundRe().
  *
  * Never prints the key.
  */
@@ -17,6 +20,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSy
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export function startDir() {
   return resolve(process.env.CLAUDE_PROJECT_DIR || sessionDirFromParents() || process.env.PWD || process.cwd());
@@ -122,14 +126,14 @@ export function session() {
         local = j.key.trim();
         // 0057: the agent's role and its page, as /agentorb:init (or session start) last set the folder up; and the MCP
         // servers whose send tools are the person's own in live sessions (sendAllowed, see sendAllowedOf).
-        extra = { role: typeof j.role === "string" ? j.role : null, page: typeof j.page === "string" ? j.page : null, sendAllowed: sendAllowedOf(j) };
+        extra = { role: typeof j.role === "string" ? j.role : null, page: typeof j.page === "string" ? j.page : null, sendAllowed: sendAllowedOf(j), gateOff: j.gate === "off" };
         home = d;
       }
     }
   }
   const env = process.env.AGENTORB_KEY?.trim() || null;
   const key = local ?? env;
-  return { root, link, key, keySource: local ? "repo" : env ? "env" : null, role: extra?.role ?? null, page: extra?.page ?? null, localDir: local ? home : null, sendAllowed: extra?.sendAllowed ?? [] };
+  return { root, link, key, keySource: local ? "repo" : env ? "env" : null, role: extra?.role ?? null, page: extra?.page ?? null, localDir: local ? home : null, sendAllowed: extra?.sendAllowed ?? [], gateOff: !!extra?.gateOff };
 }
 
 /** The runner's runs (run.mjs exports AGENTORB_HEADLESS=1): no person is watching, so nothing goes out on anyone's say-so. */
@@ -146,6 +150,72 @@ export const OUTBOUND_RE = /^mcp__.+__(?:send|reply|forward|post|publish|tweet|s
 
 /** The server part of an MCP tool name (mcp__<server>__<tool>), or null for anything else. */
 export const serverOfTool = (tool) => /^mcp__(.+?)__/.exec(String(tool))?.[1] ?? null;
+
+/**
+ * Is the outbound gate off for this session (0103)? Never headless: the runner's sends are always the board's to
+ * check. Live, a folder with its own key is switched off only by its own .agentorb.local.json ("gate": "off", written
+ * by allow-send.mjs --gate-off): AGENTORB_OUTBOUND_GATE=off from the environment is ignored there, since a cloned
+ * repo's committed .claude/settings.json can set it. A folder on AGENTORB_KEY alone (no local file) still honours it.
+ */
+export const gateOff = (me) => !headless() && (!!me?.gateOff || (me?.keySource !== "repo" && process.env.AGENTORB_OUTBOUND_GATE === "off"));
+
+/**
+ * The pattern that names a send tool for this session: OUTBOUND_RE, or AGENTORB_OUTBOUND from the environment. In a
+ * folder with its own key the environment can only widen it (both patterns apply): narrowed to nothing it would be the
+ * gate off by another name. `note` is the one-line notice to print once per session when the override is set; an
+ * unreadable pattern is ignored and said so.
+ */
+export function outboundRe(me) {
+  const raw = process.env.AGENTORB_OUTBOUND;
+  if (!raw) return { re: OUTBOUND_RE, note: null };
+  let env;
+  try {
+    env = new RegExp(raw, "i");
+  } catch {
+    return { re: OUTBOUND_RE, note: "AGENTORB_OUTBOUND is set in this environment but isn't a valid pattern; the outbound gate uses its own." };
+  }
+  if (me?.keySource === "repo") {
+    const re = { test: (t) => OUTBOUND_RE.test(t) || env.test(t) };
+    return { re, note: "AGENTORB_OUTBOUND is set in this environment: the outbound gate also checks tools matching it (it can't narrow the gate's own pattern in a folder with its own key)." };
+  }
+  return { re: env, note: "AGENTORB_OUTBOUND is set in this environment: the outbound gate checks tools matching that pattern instead of its own." };
+}
+
+/** Set or clear "gate": "off" in a folder's .agentorb.local.json (the rest, the key included, stays as it is). */
+export function writeGate(dir, off) {
+  const file = join(dir, ".agentorb.local.json");
+  if (!existsSync(file)) return null;
+  let j;
+  try {
+    j = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+  if (!j || typeof j !== "object" || Array.isArray(j)) return null;
+  if (off) j.gate = "off";
+  else delete j.gate;
+  writeFileSync(file, JSON.stringify(j, null, 2) + "\n", { mode: 0o600 });
+  try {
+    chmodSync(file, 0o600);
+  } catch {
+    /* best effort */
+  }
+  return !!off;
+}
+
+/**
+ * The one line session start prints when the live-session gate is relaxed here (0103), so a cloned repo's seeded
+ * allowlist or a gate someone switched off is seen; null when every send tool waits for approved text.
+ */
+export function gateLine(me) {
+  const cmd = `node "${join(dirname(fileURLToPath(import.meta.url)), "allow-send.mjs")}"`;
+  const servers = me?.sendAllowed?.length ? me.sendAllowed.join(", ") : "";
+  if (me?.gateOff || (me?.keySource !== "repo" && process.env.AGENTORB_OUTBOUND_GATE === "off")) {
+    return `Outbound gate: off in live sessions for every send tool${me?.gateOff ? ' (.agentorb.local.json "gate": "off")' : " (AGENTORB_OUTBOUND_GATE=off in the environment)"}${servers ? `; allowed anyway: ${servers}` : ""} (${cmd} lists and changes this; --gate-on turns it back on). The background runner still only sends text approved on the board.`;
+  }
+  if (servers) return `Outbound gate: off in live sessions for: ${servers} (${cmd} lists and changes this). Other send tools wait for text approved on the board; the background runner always does.`;
+  return null;
+}
 
 const cleanServers = (list) => (Array.isArray(list) ? [...new Set(list.filter((s) => typeof s === "string" && /^[A-Za-z0-9_.-]{1,100}$/.test(s)))] : []);
 /** The `sendAllowed` list in a parsed .agentorb.local.json: MCP server names (the middle of mcp__<server>__<tool>). */

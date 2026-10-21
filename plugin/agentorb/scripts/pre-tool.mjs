@@ -6,9 +6,13 @@
  * and set its status) is denied with the reason.
  *
  * The outbound gate (0054): a tool whose name says it sends, posts or publishes (mcp__<server>__send_message, reply,
- * post_message...; AGENTORB_OUTBOUND overrides the pattern) runs only when the board confirms one of the strings it
- * was given is an approved, finished draft part, word for word, and every address in the rest is one that part was
- * approved for. AGENTORB_OUTBOUND_GATE=off turns it off on this machine.
+ * post_message...; AGENTORB_OUTBOUND widens the pattern, see config.mjs outboundRe) runs only when the board confirms
+ * that the largest string it was given is an approved, finished draft part, word for word, that every other string is
+ * approved text of the same card (or short), and that every address is one that part was approved for (0103: the
+ * strings go tagged with their field, so a hostile `text` beside an approved attachment, or an approved post mailed
+ * anywhere, is refused by name). The gate is switched off for live sessions only by this folder's own
+ * .agentorb.local.json ("gate": "off", allow-send.mjs --gate-off); AGENTORB_OUTBOUND_GATE=off from the environment
+ * counts only in a folder without its own key (config.mjs gateOff), and never headless.
  *
  * Headless or live (0096): the runner's runs (AGENTORB_HEADLESS=1, set by run.mjs) keep the gate whole: approved text
  * only, and it fails closed when the board can't be reached. In a live session the person is right there, so their own
@@ -26,12 +30,12 @@
  * board with a key. A board that can't be reached never blocks work (the hold check fails open). Never prints the key.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { headless, linkedNearby, OUTBOUND_RE, serverOfTool, serverUrl, session, touchLive } from "./config.mjs";
-import { pruneSentMarkers, sentMarkerPath, stringsIn, writeSentMarker } from "./sent-marker.mjs";
+import { gateOff, headless, linkedNearby, outboundRe, serverOfTool, serverUrl, session, touchLive } from "./config.mjs";
+import { fieldsIn, pruneSentMarkers, sentMarkerPath, stringsIn, writeSentMarker } from "./sent-marker.mjs";
 
 const TTL_MS = 60_000;
 let input = {};
@@ -88,16 +92,38 @@ async function check() {
 /* ---- the outbound gate (0054): a tool that sends, posts or publishes runs only with an approved draft's exact text */
 
 // mcp__<server>__<tool>: a tool whose name says it sends something out. Drafts (create_draft) don't send.
-const OUTBOUND = process.env.AGENTORB_OUTBOUND ? new RegExp(process.env.AGENTORB_OUTBOUND, "i") : OUTBOUND_RE;
+const { re: OUTBOUND, note: reNote } = outboundRe(me);
+// Said once per session (the hook runs on every tool call): the environment is steering what the gate looks at.
+const notes = [];
+if (reNote) {
+  const noted = join(homedir(), ".claude", "agentorb", "noted", `${createHash("sha256").update(`outbound-re:${input.session_id ?? me.root}`).digest("hex").slice(0, 16)}`);
+  if (!existsSync(noted)) {
+    notes.push(`AgentOrb: ${reNote}`);
+    try {
+      mkdirSync(dirname(noted), { recursive: true });
+      writeFileSync(noted, new Date().toISOString());
+    } catch {
+      /* best effort */
+    }
+  }
+}
+/** Every output of this hook: the decision (if any) plus the once-per-session notes. */
+const finish = (out = {}) => {
+  const all = { ...out, ...(notes.length ? { systemMessage: [out.systemMessage, ...notes].filter(Boolean).join(" ") } : {}) };
+  if (Object.keys(all).length) process.stdout.write(JSON.stringify(all));
+  process.exit(0);
+};
 
 const texts = stringsIn(input.tool_input ?? {});
+const fields = fieldsIn(input.tool_input ?? {});
 
 async function outboundCheck() {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 4000);
   try {
     const url = serverUrl(me.link).replace(/\/api\/mcp(?:\/plugin)?$/, "/api/agents/outbound");
-    const res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { "content-type": "application/json", authorization: `Bearer ${me.key}` }, body: JSON.stringify({ texts }) });
+    // texts for a board that predates fields; a board that knows fields checks by them and ignores texts.
+    const res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { "content-type": "application/json", authorization: `Bearer ${me.key}` }, body: JSON.stringify({ texts, fields, tool }) });
     if (res.status === 404) return { ok: true, skipped: true }; // a board without the gate (older server)
     // 5xx: the board is there but couldn't answer the question; counts as unreachable (a 4xx is an answer: not approved, or not this key).
     if (!res.ok) return { ok: false, unreachable: res.status >= 500, why: `the board answered ${res.status}` };
@@ -109,17 +135,14 @@ async function outboundCheck() {
   }
 }
 
-const deny = (reason) => {
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } }));
-  process.exit(0);
-};
+const deny = (reason) => finish({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } });
 
 const state = await check();
-if (!state?.held && OUTBOUND.test(tool) && process.env.AGENTORB_OUTBOUND_GATE !== "off") {
+if (!state?.held && OUTBOUND.test(tool) && !gateOff(me)) {
   const live = !headless();
   const server = serverOfTool(tool);
   // Live session, the person's own server (the folder's allowlist): theirs to use; the board isn't asked.
-  if (live && server && me.sendAllowed.some((s) => s.toLowerCase() === server.toLowerCase())) process.exit(0);
+  if (live && server && me.sendAllowed.some((s) => s.toLowerCase() === server.toLowerCase())) finish();
   const r = await outboundCheck();
   if (r.ok) {
     // Approved on the board: leave the ids for post-tool.mjs to report as sent (an older server without `matches`
@@ -131,12 +154,16 @@ if (!state?.held && OUTBOUND.test(tool) && process.env.AGENTORB_OUTBOUND_GATE !=
         writeSentMarker(sentMarkerPath(me.key, tool, texts), { tool, card: r.card.id, parts, where: server ?? tool, at: Date.now() });
       }
     }
-    process.exit(0);
+    finish();
   }
-  // Live session, board unreachable: it goes out on the person's say-so, and they are told so. Headless fails closed.
+  // Live session, board unreachable: it goes out on the person's say-so, and they are told that nothing was checked.
+  // No marker is written, so the ledger doesn't hear of it from post-tool.mjs: the agent reports it. Headless (the
+  // runner, nobody watching) falls through to the deny below: closed.
   if (live && r.unreachable) {
-    process.stdout.write(JSON.stringify({ systemMessage: `AgentOrb couldn't check the board; ${tool} went out on your say-so.` }));
-    process.exit(0);
+    finish({
+      systemMessage: `AgentOrb couldn't reach the board (${String(r.why ?? "unreachable").replace(/\.$/, "")}), so NOTHING about ${tool} was checked: not that its text is approved, not who it goes to. It runs on your say-so only. It won't be recorded on the card's sent ledger by the hook: the agent must call report_sent for it.`,
+      hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: `AgentOrb's outbound gate couldn't reach the board for ${tool}: nothing was checked, and this send is not on the ledger. If it goes out, call report_sent (card, the part ids from get_approved, where, ref) yourself before done.` },
+    });
   }
   const why = String(r.why ?? "it isn't approved").replace(/([^.!?])$/, "$1.");
   const allowCmd = server ? `node "${join(dirname(fileURLToPath(import.meta.url)), "allow-send.mjs")}" ${server}` : null;
@@ -145,14 +172,6 @@ if (!state?.held && OUTBOUND.test(tool) && process.env.AGENTORB_OUTBOUND_GATE !=
   deny(`AgentOrb outbound gate stopped ${tool}: ${why} Use get_approved on the card and send its text exactly, to the approved recipients; anything new goes to the person first with submit_draft.${hint}`);
 }
 if (state?.held) {
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: `AgentOrb: ${state.agent ?? "this agent"} is on hold (a person paused it from the board). Stop here: set_status with what you were doing and what is left, then wait. AgentOrb's own tools still work; everything else resumes when they release you.`,
-      },
-    }),
-  );
+  deny(`AgentOrb: ${state.agent ?? "this agent"} is on hold (a person paused it from the board). Stop here: set_status with what you were doing and what is left, then wait. AgentOrb's own tools still work; everything else resumes when they release you.`);
 }
-process.exit(0);
+finish();

@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { keyIn, linkedNearby, markLive, reachOf, sameAgentElsewhere, serverUrl, session, strayServers, worktreeOf } from "./config.mjs";
+import { gateLine, keyIn, linkedNearby, markLive, reachOf, sameAgentElsewhere, serverUrl, session, strayServers, worktreeOf } from "./config.mjs";
 import { setUpForRole } from "./role-setup.mjs";
 
 // Not on a board: nothing to say, and no git to spawn finding that out. A file walk decides before session() does.
@@ -234,6 +234,7 @@ if (!process.env.AGENTORB_HEADLESS && pin) {
     }
   }
 }
+if (gateLine(me)) lines.push(gateLine(me)); // 0103: a relaxed live-session gate (off, or own servers seeded from a cloned repo's .mcp.json) is seen every start
 for (const w of warnings) lines.push(`WARNING: ${w} Tell the person this first.`);
 // The claude.ai connector can't be seen from local files (it lives in the account, not in settings), so this is said
 // every time, short: its tools sign in as a different agent than this folder's key.
