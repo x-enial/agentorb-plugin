@@ -79,11 +79,15 @@ if (!key) {
 let stopping = false;
 for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => ((stopping = true), log(`${sig}: stopping after this step`)));
 
+// One look a minute, not a connection held open: a held long poll is a serverless function running the whole time
+// (four minutes each, all day: it was most of the board's compute bill). `once: true` makes the board answer at once
+// with what it sees; the runner sleeps here, where sleeping is free, and asks again in about a minute.
+const POLL_MS = 60_000;
 async function wait() {
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), 300_000);
+  const t = setTimeout(() => ctl.abort(), 30_000);
   try {
-    const res = await fetch(`${base}/api/agents/wait`, { method: "POST", signal: ctl.signal, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify(me.link ? { project: me.link.project } : {}) });
+    const res = await fetch(`${base}/api/agents/wait`, { method: "POST", signal: ctl.signal, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ ...(me.link ? { project: me.link.project } : {}), once: true }) });
     if (res.status === 401) return { fatal: "the key is invalid or revoked" };
     if (!res.ok) return { error: `HTTP ${res.status}` };
     return await res.json();
@@ -137,7 +141,10 @@ while (!stopping) {
     await nap(jitter(60_000));
     continue;
   }
-  if (!a.wake) continue;
+  if (!a.wake) {
+    await nap(jitter(POLL_MS, 0.2));
+    continue;
+  }
   const what = `${a.why}:${a.what}`;
   repeats = what === last ? repeats + 1 : 0;
   last = what;

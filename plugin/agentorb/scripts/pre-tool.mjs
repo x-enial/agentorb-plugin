@@ -17,6 +17,11 @@
  * goes through without asking the board; any other server is still gated, and the block says how to allow it. A board
  * that can't be reached blocks headless and lets a live session through with a one-line warning to the person.
  *
+ * The ledger (0099): when the board approves a send, the card and part ids it matched are kept in a marker file
+ * (~/.claude/agentorb/sent/, see sent-marker.mjs) so the PostToolUse hook (post-tool.mjs) can report the send once the
+ * tool has run. An allowlisted own-server send, an unreachable-board pass and a gate that is off write none: those
+ * sends are the agent's to report with report_sent.
+ *
  * Cheap: asks /api/agents/held at most once a minute (cached in ~/.claude/agentorb/held/), only in a repo linked to a
  * board with a key. A board that can't be reached never blocks work (the hold check fails open). Never prints the key.
  */
@@ -26,6 +31,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { headless, linkedNearby, OUTBOUND_RE, serverOfTool, serverUrl, session, touchLive } from "./config.mjs";
+import { pruneSentMarkers, sentMarkerPath, stringsIn, writeSentMarker } from "./sent-marker.mjs";
 
 const TTL_MS = 60_000;
 let input = {};
@@ -84,20 +90,14 @@ async function check() {
 // mcp__<server>__<tool>: a tool whose name says it sends something out. Drafts (create_draft) don't send.
 const OUTBOUND = process.env.AGENTORB_OUTBOUND ? new RegExp(process.env.AGENTORB_OUTBOUND, "i") : OUTBOUND_RE;
 
-function stringsIn(v, out = [], depth = 0) {
-  if (out.length >= 50 || depth > 6) return out;
-  if (typeof v === "string") out.push(v.slice(0, 100_000));
-  else if (Array.isArray(v)) for (const x of v) stringsIn(x, out, depth + 1);
-  else if (v && typeof v === "object") for (const x of Object.values(v)) stringsIn(x, out, depth + 1);
-  return out;
-}
+const texts = stringsIn(input.tool_input ?? {});
 
 async function outboundCheck() {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 4000);
   try {
     const url = serverUrl(me.link).replace(/\/api\/mcp(?:\/plugin)?$/, "/api/agents/outbound");
-    const res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { "content-type": "application/json", authorization: `Bearer ${me.key}` }, body: JSON.stringify({ texts: stringsIn(input.tool_input ?? {}) }) });
+    const res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { "content-type": "application/json", authorization: `Bearer ${me.key}` }, body: JSON.stringify({ texts }) });
     if (res.status === 404) return { ok: true, skipped: true }; // a board without the gate (older server)
     // 5xx: the board is there but couldn't answer the question; counts as unreachable (a 4xx is an answer: not approved, or not this key).
     if (!res.ok) return { ok: false, unreachable: res.status >= 500, why: `the board answered ${res.status}` };
@@ -121,7 +121,18 @@ if (!state?.held && OUTBOUND.test(tool) && process.env.AGENTORB_OUTBOUND_GATE !=
   // Live session, the person's own server (the folder's allowlist): theirs to use; the board isn't asked.
   if (live && server && me.sendAllowed.some((s) => s.toLowerCase() === server.toLowerCase())) process.exit(0);
   const r = await outboundCheck();
-  if (r.ok) process.exit(0);
+  if (r.ok) {
+    // Approved on the board: leave the ids for post-tool.mjs to report as sent (an older server without `matches`
+    // answers the part's label, which report_sent also takes when it is unique in the latest round).
+    if (!r.skipped && r.card?.id) {
+      const parts = Array.isArray(r.matches) && r.matches.length ? r.matches.map((m) => m.part).filter((p) => typeof p === "string") : [r.part].filter((p) => typeof p === "string" && p);
+      if (parts.length) {
+        pruneSentMarkers();
+        writeSentMarker(sentMarkerPath(me.key, tool, texts), { tool, card: r.card.id, parts, where: server ?? tool, at: Date.now() });
+      }
+    }
+    process.exit(0);
+  }
   // Live session, board unreachable: it goes out on the person's say-so, and they are told so. Headless fails closed.
   if (live && r.unreachable) {
     process.stdout.write(JSON.stringify({ systemMessage: `AgentOrb couldn't check the board; ${tool} went out on your say-so.` }));
