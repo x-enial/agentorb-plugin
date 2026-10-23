@@ -23,7 +23,27 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export function startDir() {
+  // The headers helper: Claude Code may hand it a CLAUDE_PROJECT_DIR that isn't the session's folder (seen on 2.1.286:
+  // set, yet the helper found no board there and sent an empty key). There the session's folder comes from the
+  // processes above it first, and CLAUDE_PROJECT_DIR only counts when it is set up for AgentOrb.
+  if (process.env.AGENTORB_HEADERS_HELPER) {
+    const given = process.env.CLAUDE_PROJECT_DIR;
+    const plugin = process.env.CLAUDE_PLUGIN_ROOT ? resolve(process.env.CLAUDE_PLUGIN_ROOT) : null;
+    const usable = given && (!plugin || !resolve(given).startsWith(plugin)) && setUpForAgentOrb(given) ? given : null;
+    return resolve(sessionDirFromParents() || usable || process.env.PWD || process.cwd());
+  }
   return resolve(process.env.CLAUDE_PROJECT_DIR || sessionDirFromParents() || process.env.PWD || process.cwd());
+}
+
+/** Is `d`, or a folder above it, set up for AgentOrb (.agentorb.local.json or .agentorb.json)? */
+function setUpForAgentOrb(d) {
+  for (let cur = resolve(d), i = 0; i < 12; i++) {
+    if (existsSync(join(cur, ".agentorb.local.json")) || existsSync(join(cur, ".agentorb.json"))) return true;
+    const up = dirname(cur);
+    if (up === cur) break;
+    cur = up;
+  }
+  return false;
 }
 
 /**
@@ -58,15 +78,7 @@ function sessionDirFromParents() {
   };
   // The first parent whose folder (or a folder above it) is set up for AgentOrb wins; else the first one outside the
   // plugin's folder, as before (a shell between Claude Code and the helper may sit in the home folder).
-  const setUp = (d) => {
-    for (let cur = resolve(d), i = 0; i < 12; i++) {
-      if (existsSync(join(cur, ".agentorb.local.json")) || existsSync(join(cur, ".agentorb.json"))) return true;
-      const up = dirname(cur);
-      if (up === cur) break;
-      cur = up;
-    }
-    return false;
-  };
+  const setUp = setUpForAgentOrb;
   let first = null;
   let pid = process.ppid;
   for (let i = 0; i < 8 && pid > 1; i++) {
