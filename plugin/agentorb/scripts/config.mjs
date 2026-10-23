@@ -33,7 +33,10 @@ export function startDir() {
  * have CLAUDE_PROJECT_DIR).
  */
 function sessionDirFromParents() {
-  if (!process.env.CLAUDE_CODE_MCP_SERVER_NAME) return null;
+  // Only the headers helper walks up (headers.mjs sets AGENTORB_HEADERS_HELPER). Some Claude Code builds don't set
+  // CLAUDE_CODE_MCP_SERVER_NAME for the helper, and without the walk an interactive session never finds its folder's
+  // key: it then sends the empty "Bearer ${AGENTORB_KEY}" and is refused (401).
+  if (!process.env.CLAUDE_CODE_MCP_SERVER_NAME && !process.env.AGENTORB_HEADERS_HELPER) return null;
   const plugin = process.env.CLAUDE_PLUGIN_ROOT ? resolve(process.env.CLAUDE_PLUGIN_ROOT) : resolve(process.cwd());
   const linux = existsSync("/proc/self/stat");
   const parentOf = (pid) => {
@@ -53,13 +56,28 @@ function sessionDirFromParents() {
       return null;
     }
   };
+  // The first parent whose folder (or a folder above it) is set up for AgentOrb wins; else the first one outside the
+  // plugin's folder, as before (a shell between Claude Code and the helper may sit in the home folder).
+  const setUp = (d) => {
+    for (let cur = resolve(d), i = 0; i < 12; i++) {
+      if (existsSync(join(cur, ".agentorb.local.json")) || existsSync(join(cur, ".agentorb.json"))) return true;
+      const up = dirname(cur);
+      if (up === cur) break;
+      cur = up;
+    }
+    return false;
+  };
+  let first = null;
   let pid = process.ppid;
-  for (let i = 0; i < 6 && pid > 1; i++) {
+  for (let i = 0; i < 8 && pid > 1; i++) {
     const cwd = cwdOf(pid);
-    if (cwd && resolve(cwd) !== plugin) return cwd;
+    if (cwd && resolve(cwd) !== plugin) {
+      if (setUp(cwd)) return cwd;
+      first ??= cwd;
+    }
     pid = parentOf(pid);
   }
-  return null;
+  return first;
 }
 
 /** The git root of the session's directory, or the directory itself outside git. */

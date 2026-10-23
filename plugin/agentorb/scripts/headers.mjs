@@ -15,6 +15,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serverUrl, session } from "./config.mjs";
 
+// Lets config.mjs find the session's folder from the processes above this one (see sessionDirFromParents).
+process.env.AGENTORB_HEADERS_HELPER = "1";
 const me = session();
 // 0075: this folder's board (the nearest .agentorb.json): the server defaults tools, my_work and whats_new to it.
 const board = typeof me.link?.project === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(me.link.project) ? { "x-agentorb-project": me.link.project } : {};
