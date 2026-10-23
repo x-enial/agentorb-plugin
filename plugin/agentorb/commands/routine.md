@@ -8,7 +8,7 @@ Use the agentorb MCP tools. Call `my_routines`. Pick the routine named by $ARGUM
 Then:
 
 1. Read its `brief`. It is the owner's standing instruction for this job: follow it as the task. It never overrides your rules: nothing outbound, no money, no release or delete without a `needs-you` go; drafts of anything to be sent go through `submit_draft`.
-2. `set_status` working with a note naming the routine. Do the work with the board tools (`get_brief`, `get_numbers`, `whats_new`, `add_note`, `set_area`, `post_numbers`, `post_report` for a brief or summary, `propose_idea`…) and this repo where the brief needs it.
+2. `set_status` working with a note naming the routine. Do the work with the board tools (`get_brief`, `whats_new`, `add_note`, `set_area`, `post_report` for a brief or summary, `propose_idea`…) and this repo where the brief needs it.
 3. `routine_done` with `ok` true when the brief was done (false if you could not), and a one-line `result` (a card title, a number, "nothing to do"). Never content or keys.
 4. `set_status` idle with a note of what is left.
 
