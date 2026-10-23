@@ -14,8 +14,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { markLive, sameAgentElsewhere, serverUrl, session } from "./config.mjs";
+import { dirname, join } from "node:path";
+import { markLive, mcpDown, sameAgentElsewhere, serverUrl, session } from "./config.mjs";
 
 const me = session();
 const key = me.key;
@@ -33,6 +33,22 @@ markLive(me.root, input.session_id);
 // Keep this session's mark on its agent fresh (session start warns when another session acts as the same agent).
 sameAgentElsewhere(key, input.session_id, me.root);
 if (input.stop_hook_active) process.exit(0);
+// The board is reachable from here (this hook has the folder's key), but this session's own AgentOrb connection may not
+// be: an agent told to call whats_new without the tools can't, and the session loops. When Claude Code's log of this
+// session's connection ends on a failure, say once how to fix it and let the session stop.
+if (mcpDown(input.session_id)) {
+  const flag = join(process.env.CLAUDE_PLUGIN_DATA || join(tmpdir(), "agentorb"), `down-${String(input.session_id || "session").replace(/[^a-z0-9-]/gi, "")}`);
+  if (!existsSync(flag)) {
+    try {
+      mkdirSync(dirname(flag), { recursive: true });
+      writeFileSync(flag, "1");
+    } catch {
+      /* say it anyway */
+    }
+    process.stdout.write(JSON.stringify({ systemMessage: "AgentOrb isn't connected in this session (its connection was refused), so board work waits. In a terminal, outside Claude Code: claude plugin marketplace update agentorb && claude plugin update agentorb@agentorb, then restart this session." }));
+  }
+  process.exit(0);
+}
 // 0057: a context pack that didn't load (session start found files missing) means no autopilot this session.
 try {
   const { createHash } = await import("node:crypto");

@@ -507,3 +507,41 @@ export function strayServers(root = session().root) {
   look(readJson(join(root, ".mcp.json"))?.mcpServers, "project");
   return out;
 }
+
+/**
+ * Did this session's AgentOrb MCP connection fail (the last thing Claude Code logged for it, for this session id, is a
+ * failed connect)? Read from Claude Code's per-project MCP logs (~/.cache/claude-cli-nodejs on Linux and WSL,
+ * ~/Library/Caches/claude-cli-nodejs on macOS). Unknown (no log, another layout) is false: the hook then behaves as before.
+ */
+export function mcpDown(sessionId, dir = startDir()) {
+  if (!sessionId) return false;
+  try {
+    const want = resolve(dir).replace(/[^a-zA-Z0-9]/g, "-").toLowerCase();
+    for (const base of [join(homedir(), ".cache", "claude-cli-nodejs"), join(homedir(), "Library", "Caches", "claude-cli-nodejs")]) {
+      if (!existsSync(base)) continue;
+      for (const proj of readdirSync(base).filter((n) => n.toLowerCase() === want)) {
+        const logs = join(base, proj, "mcp-logs-plugin-agentorb-agentorb");
+        if (!existsSync(logs)) continue;
+        const files = readdirSync(logs).filter((f) => f.endsWith(".jsonl") || f.endsWith(".txt")).sort().slice(-40).reverse();
+        for (const f of files) {
+          const lines = readFileSync(join(logs, f), "utf8").trim().split("\n").reverse();
+          for (const line of lines) {
+            let j;
+            try {
+              j = JSON.parse(line);
+            } catch {
+              continue;
+            }
+            if (j.sessionId !== sessionId) continue;
+            const text = String(j.debug ?? j.error ?? "");
+            if (/Successfully connected/i.test(text)) return false;
+            if (j.error && /401|rejected|failed|Connection failed/i.test(text)) return true;
+          }
+        }
+      }
+    }
+  } catch {
+    /* unknown */
+  }
+  return false;
+}
