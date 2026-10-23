@@ -3,7 +3,8 @@
  * a person changed the role in Settings. For an agent outside the code folder: AGENTORB.md (imported by CLAUDE.md)
  * loads the role's context files from the code folder every session, small ones in full and big ones listed; and
  * .claude/settings.json gives it the code read-only with its git history (or not at all), never its secrets, and send
- * tools only if its role sends. Inside the code folder: only the role's limits, in .claude/settings.local.json.
+ * tools only if its role sends. Inside the code folder: no permission rules at all (they would bind the person's own
+ * sessions too); the outbound gate and the runner's own --allowedTools/--disallowedTools hold the unattended runs.
  *
  * Every rule this writes is tagged: the list (allow, deny, additionalDirectories, per settings file) is kept in the
  * git-ignored .agentorb.local.json under `settings`. A role change removes exactly those rules first, so the person's
@@ -300,9 +301,10 @@ export function setUpForRole(root, role, project, codeArg, localFile = join(root
       writeSendAllowed(dirname(localFile), [...had, ...yours.filter((s) => !had.some((h) => h.toLowerCase() === s.toLowerCase()))]);
       note = `Your ${yours.join(", ")} tools stay yours in live sessions; the runner still only sends approved text.`;
     } else if (!role.send) {
-      const { deny, kept } = keptAllows(me.root, SEND_TOOLS, []);
-      plan.set(join(me.root, ".claude", "settings.local.json"), { rules: { deny }, groups: ["send/post tools: off"], kept });
-      note = "Its send and post tools are off in this folder (its role doesn't send).";
+      // No deny rules in the person's own repo (0.38.4): settings there apply to their interactive sessions too, and
+      // the outbound gate already holds every unattended run to approved text. Rules an older setup wrote here are
+      // taken out below (the record).
+      note = "Its unattended runs send only text you approved on the board.";
     } else note = null;
   } else if (!code) {
     note = `I couldn't find this board's code folder next to this one. If it has one, run this again with --code /path/to/it, so the agent loads the project's context.`;
