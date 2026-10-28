@@ -18,7 +18,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gateLine, keyIn, linkedNearby, markLive, reachOf, sameAgentElsewhere, serverUrl, session, strayServers, worktreeOf } from "./config.mjs";
-import { setUpForRole } from "./role-setup.mjs";
+import { ensureBoardAllow, setUpForRole } from "./role-setup.mjs";
 
 // Not on a board: nothing to say, and no git to spawn finding that out. A file walk decides before session() does.
 if (!linkedNearby()) process.exit(0);
@@ -127,6 +127,14 @@ if (pack?.key && pack.key !== me.role && me.localDir && pin?.project) {
     const j = JSON.parse(readFile(f, "utf8"));
     writeFileSync(f, JSON.stringify({ ...j, role: pack.key }, null, 2) + "\n", { mode: 0o600 });
     warnings.push(`Your role changed to ${pack.label}; this folder is set up for it now${r?.note ? ` (${r.note})` : ""}. Restart Claude Code for the new context and limits.${r?.summary ? `\n${r.summary}` : ""}`);
+  } catch {
+    /* best effort */
+  }
+}
+// 0.38.7: folders set up before the board tools were allowed get the allow now (their unattended runs were denied).
+if (me.localDir && pin?.project) {
+  try {
+    if (ensureBoardAllow(me.root, join(me.localDir, ".agentorb.local.json"))) warnings.push("This folder's settings didn't allow the AgentOrb tools, so its unattended runs couldn't use the board. They're allowed now (.claude/settings.local.json); restart Claude Code to load it.");
   } catch {
     /* best effort */
   }

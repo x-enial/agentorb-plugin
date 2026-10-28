@@ -26,7 +26,7 @@
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { OUTBOUND_RE, sendAllowedIn, serverOfTool, writeSendAllowed } from "./config.mjs";
+import { BOARD_TOOLS, OUTBOUND_RE, sendAllowedIn, serverOfTool, writeSendAllowed } from "./config.mjs";
 
 
 function isGitRepo(dir) {
@@ -109,7 +109,7 @@ function outsideRules(R, role) {
   const none = role.code === "none";
   return {
     additionalDirectories: none ? [] : [R],
-    allow: none ? [] : [`Bash(git -C ${R} log:*)`, `Bash(git -C ${R} show:*)`],
+    allow: [BOARD_TOOLS, ...(none ? [] : [`Bash(git -C ${R} log:*)`, `Bash(git -C ${R} show:*)`])],
     deny: [`Edit(${P}/**)`, "Bash(git push:*)", ...(none ? [`Read(${P}/**)`] : SECRET_FILES.map((x) => `Read(${P}/${x})`)), ...(role.send ? [] : SEND_TOOLS)],
   };
 }
@@ -129,6 +129,33 @@ function legacyRules(R, inside) {
     allow: [`Bash(git -C ${R} log:*)`, `Bash(git -C ${R} show:*)`],
     deny: [...paths.flatMap((p) => [`Edit(${p}/**)`, `Write(${p}/**)`, `Read(${p}/**)`, ...SECRET_FILES.map((x) => `Read(${p}/${x})`)]), "Bash(git push:*)", ...SEND_TOOLS],
   };
+}
+
+/** The allow rules in one settings file (none when it's missing or not JSON). */
+function allowsIn(file) {
+  try {
+    const a = JSON.parse(readFileSync(file, "utf8"))?.permissions?.allow;
+    return Array.isArray(a) ? a.filter((r) => typeof r === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The board tools allowed in a folder already set up for AgentOrb (session start, 0.38.7): folders set up before this
+ * version have no allow for them, and their unattended runs were denied every board call. When neither settings file
+ * allows them, the git-ignored local one gets the allow, recorded as the plugin's like every rule it writes. Returns
+ * true when it wrote one.
+ */
+export function ensureBoardAllow(root, localFile = join(root, ".agentorb.local.json")) {
+  const dir = join(root, ".claude");
+  if (["settings.json", "settings.local.json"].some((f) => allowsIn(join(dir, f)).includes(BOARD_TOOLS))) return false;
+  const file = join(dir, "settings.local.json");
+  if (!mergeSettings(file, { allow: [BOARD_TOOLS] }).added) return false;
+  const record = readRecord(localFile) ?? {};
+  const mine = record[file] ?? {};
+  writeRecord(localFile, { ...record, [file]: { ...mine, allow: [...(mine.allow ?? []), BOARD_TOOLS] } });
+  return true;
 }
 
 /** The record of what the plugin wrote, from the local file's `settings` key (nothing else in the file is read out). */
@@ -306,6 +333,9 @@ export function setUpForRole(root, role, project, codeArg, localFile = join(root
       // taken out below (the record).
       note = "Its unattended runs send only text you approved on the board.";
     } else note = null;
+    // The board tools, allowed (0.38.7): an agent set up for AgentOrb that can't call AgentOrb makes no sense. An allow
+    // only, in the git-ignored local settings; nothing of the person's is taken away.
+    plan.set(join(me.root, ".claude", "settings.local.json"), { rules: { allow: [BOARD_TOOLS] }, groups: ["AgentOrb board tools: allowed"], kept: [] });
   } else if (!code) {
     note = `I couldn't find this board's code folder next to this one. If it has one, run this again with --code /path/to/it, so the agent loads the project's context.`;
   } else {
@@ -343,7 +373,7 @@ export function setUpForRole(root, role, project, codeArg, localFile = join(root
     if (!/^@AGENTORB\.md\s*$/m.test(had)) writeFileSync(claude, `@AGENTORB.md\n\n${had}`);
     // Its limits: the code read-only with its history (none for roles that don't use it), no secrets, sends as its role allows.
     const rules = outsideRules(R, role);
-    const groups = [role.code === "none" ? "code: unreadable (its role doesn't use it)" : "code: read-only, with git history", ...(role.code === "none" ? [] : ["secrets: unreadable"]), "git push: off"];
+    const groups = ["AgentOrb board tools: allowed", role.code === "none" ? "code: unreadable (its role doesn't use it)" : "code: read-only, with git history", ...(role.code === "none" ? [] : ["secrets: unreadable"]), "git push: off"];
     let kept = [];
     if (!role.send) {
       const k = keptAllows(me.root, SEND_TOOLS, rules.allow);
@@ -353,6 +383,13 @@ export function setUpForRole(root, role, project, codeArg, localFile = join(root
     }
     plan.set(join(me.root, ".claude", "settings.json"), { rules, groups, kept });
     note = `Context: ${load.length} file${load.length === 1 ? "" : "s"} from ${basename(R)} load every session (AGENTORB.md, imported by CLAUDE.md)${list.length ? `, ${list.length} more listed to read when needed` : ""}. ${role.code === "none" ? "It doesn't work in the code." : "The code is read-only for it, with its git history."}${role.send ? "" : " Send and post tools are off."}`;
+  }
+
+  // An allow the person wrote themselves stays theirs: it isn't recorded as ours, so a later setup never takes it out.
+  for (const [file, want] of plan) {
+    const ours = record?.[file]?.allow ?? [];
+    const theirs = allowsIn(file).filter((r) => !ours.includes(r));
+    if (want.rules.allow) want.rules.allow = want.rules.allow.filter((r) => !theirs.includes(r));
   }
 
   // Out with the last setup's rules (the record; before records, every shape the plugin could have written here), in with this role's.

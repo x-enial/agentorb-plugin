@@ -176,6 +176,15 @@ export const headless = () => !!process.env.AGENTORB_HEADLESS;
  * post_message...). pre-tool.mjs applies it (AGENTORB_OUTBOUND overrides it there); role-setup.mjs uses it to see
  * whether the person's own allow rules name such a tool.
  */
+/**
+ * The permission rule that allows every AgentOrb board tool (the plugin's server, mcp__plugin_agentorb_agentorb__*).
+ * Claude Code needs the server named: a bare mcp__* allows nothing, so an agent folder without this rule had every board
+ * call denied in its unattended runs. The runner always passes it, and setup writes it into the folder's settings.
+ */
+export const BOARD_TOOLS = "mcp__plugin_agentorb_agentorb";
+/** A board tool's full name (the plugin's server, or the claude.ai connector's). */
+export const BOARD_TOOL_RE = /^mcp__(plugin_agentorb_|claude_ai_)?agentorb__/i;
+
 export const OUTBOUND_RE = /^mcp__.+__(?:send|reply|forward|post|publish|tweet|share|send_[a-z_]+|post_[a-z_]+|publish_[a-z_]+|[a-z_]+_send|[a-z_]+_post_message|create_post|create_tweet|reply_[a-z_]+)$/i;
 
 /** The server part of an MCP tool name (mcp__<server>__<tool>), or null for anything else. */

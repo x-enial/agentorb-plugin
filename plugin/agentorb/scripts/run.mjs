@@ -19,7 +19,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { liveHere, serverUrl, session } from "./config.mjs";
+import { BOARD_TOOL_RE, liveHere, serverUrl, session } from "./config.mjs";
 
 // This repo's own agent (.agentorb.local.json) or AGENTORB_KEY; this repo's board only (.agentorb.json).
 const me = session();
@@ -121,7 +121,7 @@ function stepOf(use) {
 }
 
 const NAMES = { five_hour: "5 hours", seven_day: "7 days", seven_day_opus: "7 days (Opus)", seven_day_sonnet: "7 days (Sonnet)" };
-const seen = { steps: [], windows: null, status: null, result: "", error: false };
+const seen = { steps: [], windows: null, status: null, result: "", error: false, boardDenied: false };
 function read(line) {
   let o;
   try {
@@ -140,6 +140,8 @@ function read(line) {
   } else if (o.type === "result") {
     seen.result = typeof o.result === "string" ? o.result : "";
     seen.error = !!o.is_error;
+    // 0.38.7: a board tool this run wasn't allowed to call. The run can't do its job, whatever it ended with.
+    if ((o.permission_denials ?? []).some((d) => BOARD_TOOL_RE.test(String(d?.tool_name ?? "")))) seen.boardDenied = true;
   }
 }
 
@@ -251,6 +253,10 @@ if (buf) parse(buf);
 // Why a run ended (0056), so the runner does the right thing next: ok; limit (the plan's window is spent or the API
 // refused for load: wait for the reset, don't retry into it); timeout (the run hit its time box); logic (it ran but
 // ended in an error: its own retry won't help, so back off); crash (it died without a result: retry once).
+if (seen.boardDenied) {
+  seen.error = true;
+  seen.result = "AgentOrb tools were denied in this run: allow mcp__plugin_agentorb_agentorb in this folder's .claude/settings.local.json (or update the plugin, which does it), then it runs again.";
+}
 const ok = code === 0 && !seen.error;
 const limitHit = /rejected/i.test(seen.status || "") || /usage limit|rate.?limit|\b429\b|overloaded|\b529\b|quota|credit balance/i.test(seen.result || "");
 const kind = ok ? "ok" : code === 143 || code === 124 ? "timeout" : limitHit ? "limit" : seen.result && seen.error ? "logic" : "crash";
