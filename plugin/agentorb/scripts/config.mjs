@@ -22,17 +22,31 @@ import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/**
+ * On WSL a folder can arrive in Windows form (C:/Users/…, C:\\Users\\…): from git.exe on the PATH, or a
+ * CLAUDE_PROJECT_DIR set on the Windows side. resolve() would glue it onto the WSL working directory
+ * (/mnt/c/…/C:/Users/…), and the key, the board link and the runner's lock would all be missed. Turn it into its
+ * /mnt/<drive>/ path when that exists; anywhere but WSL a path is left as it is.
+ */
+export function posixPath(p) {
+  if (!p || process.platform === "win32") return p;
+  const m = /^([A-Za-z]):[\\/](.*)$/.exec(p);
+  if (!m) return p;
+  const wsl = `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, "/")}`.replace(/\/+$/, "");
+  return existsSync(wsl) ? wsl : p;
+}
+
 export function startDir() {
   // The headers helper: Claude Code may hand it a CLAUDE_PROJECT_DIR that isn't the session's folder (seen on 2.1.286:
   // set, yet the helper found no board there and sent an empty key). There the session's folder comes from the
   // processes above it first, and CLAUDE_PROJECT_DIR only counts when it is set up for AgentOrb.
   if (process.env.AGENTORB_HEADERS_HELPER) {
-    const given = process.env.CLAUDE_PROJECT_DIR;
+    const given = posixPath(process.env.CLAUDE_PROJECT_DIR);
     const plugin = process.env.CLAUDE_PLUGIN_ROOT ? resolve(process.env.CLAUDE_PLUGIN_ROOT) : null;
     const usable = given && (!plugin || !resolve(given).startsWith(plugin)) && setUpForAgentOrb(given) ? given : null;
     return resolve(sessionDirFromParents() || usable || process.env.PWD || process.cwd());
   }
-  return resolve(process.env.CLAUDE_PROJECT_DIR || sessionDirFromParents() || process.env.PWD || process.cwd());
+  return resolve(posixPath(process.env.CLAUDE_PROJECT_DIR) || sessionDirFromParents() || process.env.PWD || process.cwd());
 }
 
 /** Is `d`, or a folder above it, set up for AgentOrb (.agentorb.local.json or .agentorb.json)? */
@@ -96,7 +110,7 @@ function sessionDirFromParents() {
 export function repoRoot(dir = startDir()) {
   try {
     const out = execFileSync("git", ["-C", dir, "rev-parse", "--show-toplevel"], { stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).toString().trim();
-    return out || dir;
+    return resolve(posixPath(out) || dir);
   } catch {
     return dir;
   }

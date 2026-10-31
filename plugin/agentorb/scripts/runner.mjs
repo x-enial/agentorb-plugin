@@ -62,12 +62,23 @@ function stepAsideIfOutdated() {
   log(`${why}: restarting on the new version (the scheduler starts it within a minute)`);
   process.exit(0);
 }
-/** A wait that ends early to step aside for a new version, or on SIGTERM. */
-async function nap(ms) {
+/**
+ * A wait that ends early to step aside for a new version, or on SIGTERM. `beat`: a long wait (plan limit, crash
+ * back-off, your session) still asks the board once a minute, which is how the board knows the runner is on: it calls
+ * a runner off after 6 minutes of silence and tells the person to set one up.
+ */
+async function nap(ms, { beat = false } = {}) {
   const end = Date.now() + ms;
   while (!stopping && Date.now() < end) {
     await sleep(Math.min(60_000, end - Date.now()));
     stepAsideIfOutdated();
+    if (beat && Date.now() < end) {
+      const b = await wait();
+      if (b.fatal) {
+        log(`stopping: ${b.fatal}`);
+        process.exit(1);
+      }
+    }
   }
 }
 
@@ -142,6 +153,9 @@ while (!stopping) {
     continue;
   }
   if (!a.wake) {
+    // Nothing due: whatever woke it last was moved, so the next wake for it (a routine's next day) is new, not a repeat.
+    last = "";
+    repeats = 0;
     await nap(jitter(POLL_MS, 0.2));
     continue;
   }
@@ -151,14 +165,31 @@ while (!stopping) {
   if (repeats) {
     const ms = Math.min(15 * 60_000 * repeats, 2 * 60 * 60_000);
     log(`"${a.what}" is still waiting after the last run; trying again in ${Math.round(ms / 60_000)} min`);
-    await nap(jitter(ms));
+    // Backing off isn't going quiet: it still asks the board once a minute, so the board keeps showing it as on (it
+    // calls a runner off after 6 minutes of silence) and other work, or this one moving, ends the wait.
+    const until = Date.now() + jitter(ms);
+    let moved = false;
+    while (!stopping && Date.now() < until) {
+      await nap(Math.min(jitter(POLL_MS, 0.2), Math.max(0, until - Date.now())));
+      const b = await wait();
+      if (b.fatal) {
+        log(`stopping: ${b.fatal}`);
+        process.exit(1);
+      }
+      if (b.error) continue;
+      if (b.held || !b.wake || `${b.why}:${b.what}` !== what) {
+        moved = true;
+        break;
+      }
+    }
+    if (moved || stopping) continue;
   }
   if (liveHere(me.root)) {
     // Same agent, same files: while you're active in this repo your session is the agent (its briefing lists this
     // work); the runner takes over LIVE_MS after your last turn or tool call, or as soon as the session closes.
     const ago = liveAgoMinutes(me.root) ?? 0;
     log(`work: ${a.why} "${a.what}", but you were active in this repo ${ago} min ago; the runner resumes ${Math.round(LIVE_MS / 60_000)} min after your last turn or tool call, or when the session closes. Checking again in 5 min`);
-    await nap(jitter(5 * 60_000));
+    await nap(jitter(5 * 60_000), { beat: true });
     continue;
   }
   stepAsideIfOutdated();
@@ -173,17 +204,17 @@ while (!stopping) {
     const until = outcome()?.retryAt ?? Date.now() + 30 * 60_000;
     const ms = Math.max(60_000, Math.min(until - Date.now(), 6 * 60 * 60_000));
     log(`run hit the plan limit; waiting ${Math.round(ms / 60_000)} min, until it resets`);
-    await nap(jitter(ms, 0.05) + 30_000);
+    await nap(jitter(ms, 0.05) + 30_000, { beat: true });
   } else if (code === 70) {
     // Died without a result: retry once soon; again, and it is something real, so back off and let the board show it.
     crashes += 1;
     const ms = crashes === 1 ? 60_000 : Math.min(30 * 60_000 * (crashes - 1), 2 * 60 * 60_000);
     log(`run crashed (${crashes} in a row); trying again in ${Math.round(ms / 60_000)} min`);
-    await nap(jitter(ms));
+    await nap(jitter(ms), { beat: true });
   } else {
     // 65 stuck (it ran and ended in an error) or 124 out of time: the same run again won't fix it right away.
     crashes = 0;
     log(`run ended ${code === 124 ? "out of time" : "with an error"} (${code}); next try in 10 min`);
-    await nap(jitter(10 * 60_000));
+    await nap(jitter(10 * 60_000), { beat: true });
   }
 }
