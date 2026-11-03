@@ -17,9 +17,12 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { LIVE_MS, liveAgoMinutes, liveHere, serverUrl, session } from "./config.mjs";
+import { LIVE_MS, liveAgoMinutes, liveHere, runMode, serverUrl, session, waitsForPerson } from "./config.mjs";
 
 const me = session();
+// A Builder's runs are board-only (config.mjs runMode): they can't change files, so they don't wait for you. Read
+// again before each look, so `runner-setup.mjs code on|off` takes effect without a restart.
+let mode = runMode(me);
 const key = me.key;
 const base = serverUrl(me.link).replace(/\/api\/mcp(?:\/plugin)?\/?$/, "").replace(/\/$/, "");
 const here = dirname(fileURLToPath(import.meta.url));
@@ -98,7 +101,7 @@ async function wait() {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 30_000);
   try {
-    const res = await fetch(`${base}/api/agents/wait`, { method: "POST", signal: ctl.signal, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ ...(me.link ? { project: me.link.project } : {}), once: true }) });
+    const res = await fetch(`${base}/api/agents/wait`, { method: "POST", signal: ctl.signal, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ ...(me.link ? { project: me.link.project } : {}), once: true, ...(mode === "board-only" ? { boardOnly: true } : {}) }) });
     if (res.status === 401) return { fatal: "the key is invalid or revoked" };
     if (!res.ok) return { error: `HTTP ${res.status}` };
     return await res.json();
@@ -111,13 +114,13 @@ async function wait() {
 
 function run() {
   return new Promise((resolve) => {
-    const child = spawn("bash", [join(here, "agentorb-run.sh")], { stdio: "inherit", env: { ...process.env, AGENTORB_RUN_EVERY: "0" } });
+    const child = spawn("bash", [join(here, "agentorb-run.sh")], { stdio: "inherit", env: { ...process.env, AGENTORB_RUN_EVERY: "0", AGENTORB_BOARD_ONLY: mode === "board-only" ? "1" : "0" } });
     child.on("exit", (code) => resolve(code ?? 0));
     child.on("error", (e) => (log(`run failed to start: ${e.message}`), resolve(1)));
   });
 }
 
-log(`runner connected to ${base} from ${process.cwd()}`);
+log(`runner connected to ${base} from ${process.cwd()}${mode === "board-only" ? " (board-only runs: no file changes, so they don't wait for you; code cards are left labelled Code for your session)" : ""}`);
 let backoff = 5_000;
 // The same thing waking it again right after a run means the run couldn't move it: back off (15 min, 30, … 2 h)
 // instead of spending plan usage on it every few seconds.
@@ -134,6 +137,9 @@ function outcome() {
 }
 while (!stopping) {
   stepAsideIfOutdated();
+  const now = runMode(session());
+  if (now !== mode) log(`background runs are ${now === "board-only" ? "board-only now (no file changes)" : "allowed to change code now (they wait while you're active here)"}`);
+  mode = now;
   const a = await wait();
   if (a.fatal) {
     log(`stopping: ${a.fatal}`);
@@ -184,9 +190,10 @@ while (!stopping) {
     }
     if (moved || stopping) continue;
   }
-  if (liveHere(me.root)) {
+  if (waitsForPerson(mode, liveHere(me.root))) {
     // Same agent, same files: while you're active in this repo your session is the agent (its briefing lists this
     // work); the runner takes over LIVE_MS after your last turn or tool call, or as soon as the session closes.
+    // Board-only runs never get here: they can't touch your files.
     const ago = liveAgoMinutes(me.root) ?? 0;
     log(`work: ${a.why} "${a.what}", but you were active in this repo ${ago} min ago; the runner resumes ${Math.round(LIVE_MS / 60_000)} min after your last turn or tool call, or when the session closes. Checking again in 5 min`);
     await nap(jitter(5 * 60_000), { beat: true });

@@ -36,7 +36,12 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
 
-echo "$(date -Is) agentorb $MODE run in $(pwd) (max $MAX task, ${MINUTES}m, tools: $TOOLS; denied: $DENY)"
+if [ "${AGENTORB_BOARD_ONLY:-}" = "1" ]; then
+  # run.mjs takes the edit tools and the bare shell out of these lists for a Builder's board-only run (config.mjs runMode).
+  echo "$(date -Is) agentorb $MODE run in $(pwd) (max $MAX task, ${MINUTES}m, board-only: no file changes, the shell read-only)"
+else
+  echo "$(date -Is) agentorb $MODE run in $(pwd) (max $MAX task, ${MINUTES}m, tools: $TOOLS; denied: $DENY)"
+fi
 if [ "$MODE" = "think" ]; then PROMPT="/agentorb:think"; else PROMPT="/agentorb:work $MAX"; fi   # a due routine replaces the prompt inside run.mjs
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # run.mjs asks the board first (a hold or a plan window past 85% means no run), then reports steps and usage live.

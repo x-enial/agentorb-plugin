@@ -3,7 +3,7 @@ description: Turn this folder's background runner on or off, or see how it's doi
 argument-hint: "[on|off|status]"
 ---
 
-Map $ARGUMENTS to one subcommand: `on` (or install, yes) → `install`; `off` (or uninstall, remove, stop) → `uninstall`; empty or `status` → `status`. Run it from this folder:
+Map $ARGUMENTS to one subcommand: `on` (or install, yes) → `install`; `off` (or uninstall, remove, stop) → `uninstall`; empty or `status` → `status`; `code on` / `code off` / `code` → `code on` / `code off` / `code` (may this agent's background runs change code here). Run it from this folder:
 
 ```
 node "${CLAUDE_PLUGIN_ROOT}/scripts/runner-setup.mjs" <subcommand>
@@ -15,7 +15,8 @@ Then report what it printed in a few lines, in plain words. It never prints the 
 - If it says a runner line was added by hand for this folder, ask whether to swap it for a managed one; only on a yes, run `install --replace`.
 - If it says the folder has no key of its own, the next step is `/agentorb:init`.
 - On WSL, if it says cron isn't running, pass on the command it gives (it needs sudo; don't run it yourself).
-- The runner waits while a Claude Code session is open in this folder, so it won't start work beside you.
-- A run has the tools your own session has: read, edit, the shell, web search and fetch, subagents and every MCP server. It can't push, publish a package, deploy to production, use sudo or delete from the root; those wait for you. Anything it sends or posts goes through the outbound gate: only text you approved, word for word. `AGENTORB_RUN_TOOLS` and `AGENTORB_RUN_DENY` change the two lists.
+- A Builder's (or General agent's) runs are board-only: think runs, routines, replies, drafts, research and board changes, with no way to change files (Edit, Write and NotebookEdit off, the shell read-only). They don't wait for you, since they can't touch your files. A card that needs code isn't done in the background: the run writes the plan on it, labels it Code and leaves it; your next session here lists it ("1 code card ready"). `code on` lets this agent's runs change code again (the old way: full tools, and they wait while you're active here); `code off` goes back to board-only.
+- Every other role's runs (and a Builder's with `code on`) wait while you're active in this folder (10 minutes after your last turn), so they won't start work beside you.
+- A full run has the tools your own session has: read, edit, the shell, web search and fetch, subagents and every MCP server. It can't push, publish a package, deploy to production, use sudo or delete from the root; those wait for you. Anything it sends or posts goes through the outbound gate: only text you approved, word for word. `AGENTORB_RUN_TOOLS` and `AGENTORB_RUN_DENY` change the two lists.
 - The runner sets its own tools when it starts each run (`--allowedTools` / `--disallowedTools`); to change them, set `AGENTORB_RUN_TOOLS` or `AGENTORB_RUN_DENY` for the runner. Never put runner rules in the repo's `.claude/settings.json` or `settings.local.json`: those bind the person's own Claude Code sessions in the repo too (a deny on `git push` there takes push away from them). If you find such a block written for the runner, say so and offer to remove it; edit only on a yes.
 - No runner (status says so) and they want it working only while this window is open: the stopgap is `/loop 15m check the AgentOrb board (whats_new with loop "15m") and handle anything for <agent name>`. It stops when the window closes; the board shows "Loop on" while it runs.

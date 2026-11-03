@@ -170,15 +170,59 @@ export function session() {
         local = j.key.trim();
         // 0057: the agent's role and its page, as /agentorb:init (or session start) last set the folder up; and the MCP
         // servers whose send tools are the person's own in live sessions (sendAllowed, see sendAllowedOf).
-        extra = { role: typeof j.role === "string" ? j.role : null, page: typeof j.page === "string" ? j.page : null, sendAllowed: sendAllowedOf(j), gateOff: j.gate === "off" };
+        // codeOnItsOwn: the person let this agent's background runs edit code (see runMode).
+        extra = { role: typeof j.role === "string" ? j.role : null, page: typeof j.page === "string" ? j.page : null, sendAllowed: sendAllowedOf(j), gateOff: j.gate === "off", codeOnItsOwn: j.codeOnItsOwn === true };
         home = d;
       }
     }
   }
   const env = process.env.AGENTORB_KEY?.trim() || null;
   const key = local ?? env;
-  return { root, link, key, keySource: local ? "repo" : env ? "env" : null, role: extra?.role ?? null, page: extra?.page ?? null, localDir: local ? home : null, sendAllowed: extra?.sendAllowed ?? [], gateOff: !!extra?.gateOff };
+  return { root, link, key, keySource: local ? "repo" : env ? "env" : null, role: extra?.role ?? null, page: extra?.page ?? null, localDir: local ? home : null, sendAllowed: extra?.sendAllowed ?? [], gateOff: !!extra?.gateOff, codeOnItsOwn: !!extra?.codeOnItsOwn };
 }
+
+/*
+ * Board-only runs. A code-editing role's agent (Builder, General) lives in the person's own repo, and its background
+ * runs are mostly board work: think runs, routines, replies, drafts, research. Those runs get no way to change files
+ * (Edit, Write and NotebookEdit off; the shell limited to reading), so they can't collide with the person working in
+ * the same files and don't wait for them. A card that needs code is prepared (the plan in a note) and labelled Code;
+ * the person's own session does it. "codeOnItsOwn": true in the folder's .agentorb.local.json (only there: the
+ * environment can come from a cloned repo's committed settings) keeps the old way: full tools, and waiting while the
+ * person is active. Read-only and no-code roles, and folders set up before roles, run as they always have.
+ */
+/** "board-only" or "full", from the folder's role and its codeOnItsOwn switch. */
+export function runMode(me) {
+  return ROLES[me?.role]?.code === "edit" && !me?.codeOnItsOwn ? "board-only" : "full";
+}
+/** Does a run wait for the person? Only a full run in a folder they're active in: a board-only run can't touch their files. */
+export const waitsForPerson = (mode, live) => mode !== "board-only" && !!live;
+/** The tools that change files: never in a board-only run. */
+export const EDIT_TOOLS = ["Edit", "Write", "NotebookEdit", "MultiEdit"];
+/** The shell a board-only run keeps: reading the repo and its history. Anything else is denied (--permission-mode dontAsk). */
+export const READ_ONLY_BASH = ["git log", "git show", "git diff", "git status", "git blame", "git ls-files", "ls", "cat", "head", "tail", "wc", "grep", "rg", "pwd"].map((c) => `Bash(${c}:*)`);
+/**
+ * A board-only run's `claude` arguments: the edit tools and the bare shell taken out of --allowedTools (read-only shell
+ * commands in its place) and the edit tools added to --disallowedTools, whatever AGENTORB_RUN_TOOLS said.
+ */
+export function boardOnlyArgs(args) {
+  const out = [...args];
+  const list = (s) => String(s ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const edits = (t) => EDIT_TOOLS.includes(t) || EDIT_TOOLS.some((e) => t.startsWith(`${e}(`));
+  const set = (flag, f) => {
+    const i = out.indexOf(flag);
+    if (i >= 0) out[i + 1] = f(list(out[i + 1])).join(",");
+    else out.push(flag, f([]).join(","));
+  };
+  set("--allowedTools", (xs) => [...new Set([...xs.filter((t) => !edits(t) && t !== "Bash" && !t.startsWith("Bash(")), ...READ_ONLY_BASH])]);
+  set("--disallowedTools", (xs) => [...new Set([...xs, ...EDIT_TOOLS])]);
+  return out;
+}
+/** What a board-only run is told, on top of its job (/agentorb:work, think, a routine). */
+export const BOARD_ONLY_PROMPT = [
+  "This is a board-only run. The person works in this folder and makes code changes in their own Claude Code session, so you can't change files here: Edit, Write and NotebookEdit are off and the shell only reads (git log/show/diff/status, ls, cat, grep). Never try to write with the shell (redirects, tee, sed -i, git commit or checkout).",
+  "Board work is yours as usual: routines, think runs, replies to messages, drafts, research, notes and card changes. Call my_work with board_only: true.",
+  "A card that needs code changed (or a build, a release, anything that writes files here): don't start it. Read what you need, then add_note on it with the plan (what to change, in which files, how to check it), label_card it Code, leave its status as it was, and move on to the next thing. If you can't label it, set_card_status needs-you with the plan as the why. The person's next session lists it as code ready for them.",
+].join("\n");
 
 /** The runner's runs (run.mjs exports AGENTORB_HEADLESS=1): no person is watching, so nothing goes out on anyone's say-so. */
 export const headless = () => !!process.env.AGENTORB_HEADLESS;
@@ -234,26 +278,34 @@ export function outboundRe(me) {
   return { re: env, note: "AGENTORB_OUTBOUND is set in this environment: the outbound gate checks tools matching that pattern instead of its own." };
 }
 
-/** Set or clear "gate": "off" in a folder's .agentorb.local.json (the rest, the key included, stays as it is). */
-export function writeGate(dir, off) {
+/** Set (a value) or clear (undefined) one field of a folder's .agentorb.local.json; the rest, the key included, stays. */
+function writeLocalField(dir, name, value) {
   const file = join(dir, ".agentorb.local.json");
-  if (!existsSync(file)) return null;
+  if (!existsSync(file)) return false;
   let j;
   try {
     j = JSON.parse(readFileSync(file, "utf8"));
   } catch {
-    return null;
+    return false;
   }
-  if (!j || typeof j !== "object" || Array.isArray(j)) return null;
-  if (off) j.gate = "off";
-  else delete j.gate;
+  if (!j || typeof j !== "object" || Array.isArray(j)) return false;
+  if (value === undefined) delete j[name];
+  else j[name] = value;
   writeFileSync(file, JSON.stringify(j, null, 2) + "\n", { mode: 0o600 });
   try {
     chmodSync(file, 0o600);
   } catch {
     /* best effort */
   }
-  return !!off;
+  return true;
+}
+/** Set or clear "gate": "off" in a folder's .agentorb.local.json. */
+export function writeGate(dir, off) {
+  return writeLocalField(dir, "gate", off ? "off" : undefined) ? !!off : null;
+}
+/** Set or clear "codeOnItsOwn" (runMode: the agent's background runs may change code) in a folder's .agentorb.local.json. */
+export function writeCodeOnItsOwn(dir, on) {
+  return writeLocalField(dir, "codeOnItsOwn", on ? true : undefined) ? !!on : null;
 }
 
 /**

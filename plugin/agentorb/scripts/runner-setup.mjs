@@ -20,7 +20,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync,
 import { homedir, userInfo } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { session } from "./config.mjs";
+import { runMode, session, writeCodeOnItsOwn } from "./config.mjs";
 
 const say = (s = "") => process.stdout.write(s + "\n");
 const here = dirname(fileURLToPath(import.meta.url));
@@ -543,12 +543,28 @@ function installedQuiet() {
 
 const [cmd = "status", ...flags] = process.argv.slice(2);
 if (cmd === "installed") process.exit(installedQuiet());
+// `code on|off`: may this agent's background runs change code (config.mjs runMode)? Only a code-editing role asks.
+if (cmd === "code") {
+  if (!me.localDir) {
+    say(`AgentOrb: ${folder} has no agent key of its own (.agentorb.local.json); /agentorb:init connects it first.`);
+    process.exit(1);
+  }
+  const on = flags[0] === "on" ? true : flags[0] === "off" ? false : null;
+  if (on === null) {
+    say(`Background runs here: ${runMode(me) === "board-only" ? "board-only (no file changes; code cards are left labelled Code for your session)" : me.codeOnItsOwn ? "may change code (they wait while you're active here)" : "full tools (this role isn't a code-editing one)"}. Usage: runner-setup.mjs code on | off`);
+    process.exit(0);
+  }
+  writeCodeOnItsOwn(me.localDir, on);
+  say(on ? "This agent's background runs may change code here now. They wait while you're active in this folder (10 minutes after your last turn), as before." : "This agent's background runs are board-only again: no file changes, they don't wait for you, and code cards are left labelled Code for your session.");
+  say("The runner picks this up within a minute; no restart needed.");
+  process.exit(0);
+}
 const p = platform();
 const impl = p === "darwin" ? { status: launchdStatus, install: launchdInstall, uninstall: launchdUninstall } : p === "win32" ? { status: taskStatus, install: taskInstall, uninstall: taskUninstall } : { status: cronStatus, install: () => cronInstall(flags.includes("--replace")), uninstall: cronUninstall };
 const alias = { on: "install", off: "uninstall", remove: "uninstall" };
 const run = impl[alias[cmd] ?? cmd];
 if (!run) {
-  say("Usage: runner-setup.mjs status | install [--replace] | uninstall");
+  say("Usage: runner-setup.mjs status | install [--replace] | uninstall | code [on|off]");
   process.exit(1);
 }
 if (!me.link) say(`Note: ${folder} isn't linked to a board yet (.agentorb.json); /agentorb:init connects it.`);

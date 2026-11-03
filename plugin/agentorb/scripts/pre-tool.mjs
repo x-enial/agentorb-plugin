@@ -34,7 +34,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gateOff, headless, linkedNearby, outboundRe, serverOfTool, serverUrl, session, touchLive } from "./config.mjs";
+import { EDIT_TOOLS, gateOff, headless, linkedNearby, outboundRe, serverOfTool, serverUrl, session, touchLive } from "./config.mjs";
 import { fieldsIn, pruneSentMarkers, sentMarkerPath, stringsIn, writeSentMarker } from "./sent-marker.mjs";
 
 const TTL_MS = 60_000;
@@ -136,6 +136,17 @@ async function outboundCheck() {
 }
 
 const deny = (reason) => finish({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } });
+
+// A board-only run (config.mjs runMode; run.mjs sets AGENTORB_BOARD_ONLY): its tool lists already leave file changes
+// out, and this is the second lock.
+if (headless() && process.env.AGENTORB_BOARD_ONLY === "1" && EDIT_TOOLS.includes(tool)) {
+  deny(`AgentOrb: this is a board-only run, so ${tool} is off (the person makes code changes in their own session). Put the plan on the card with add_note, label_card it Code, and move on.`);
+}
+// The read-only shell list allows git log / show / diff, which can still write a file (--output) or run an external
+// diff or text-conversion program; and any command can redirect into a file (2>&1 and >/dev/null are fine).
+if (headless() && process.env.AGENTORB_BOARD_ONLY === "1" && tool === "Bash" && /--output\b|--ext-diff|--textconv|>|\btee\b/.test(String(input.tool_input?.command ?? "").replace(/\d*>&\d|\d*>\s*\/dev\/null/g, ""))) {
+  deny("AgentOrb: this is a board-only run, so commands that write files are off. Read only; put what needs changing on the card as a plan and label it Code.");
+}
 
 const state = await check();
 if (!state?.held && OUTBOUND.test(tool) && !gateOff(me)) {

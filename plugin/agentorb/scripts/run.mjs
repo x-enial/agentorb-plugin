@@ -12,6 +12,9 @@
  * the folder's own key for AgentOrb (the run's MCP connection overrides Codex's own), and Codex's sandbox in place of
  * Claude's tool allowlist (workspace-write by default, AGENTORB_CODEX_SANDBOX to change it). A code folder the role's
  * settings deny Edit/Write on is not added to Codex's writable set; the prompt says it is read-only.
+ *
+ * A Builder's run is board-only (config.mjs runMode): no file changes (the edit tools out, the shell read-only; Codex's
+ * read-only sandbox), so it doesn't wait for you, and a card that needs code is prepared and labelled Code for you.
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -19,7 +22,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BOARD_TOOL_RE, liveHere, serverUrl, session } from "./config.mjs";
+import { BOARD_ONLY_PROMPT, BOARD_TOOL_RE, boardOnlyArgs, liveHere, runMode, serverUrl, session, waitsForPerson } from "./config.mjs";
 
 // This repo's own agent (.agentorb.local.json) or AGENTORB_KEY; this repo's board only (.agentorb.json).
 const me = session();
@@ -43,8 +46,11 @@ if (!key) {
   log("no key: put this repo's agent key in .agentorb.local.json or export AGENTORB_KEY");
   process.exit(1);
 }
-// You're working here yourself: the board's work waits for you (no second session as the same agent).
-if (!force && liveHere(me.root)) {
+// A Builder's runs are board-only (config.mjs runMode): no file changes. AGENTORB_BOARD_ONLY=1 (the runner sets it)
+// can only make a run board-only, never lift it: it's the folder's own .agentorb.local.json that does that.
+const boardOnly = runMode(me) === "board-only" || process.env.AGENTORB_BOARD_ONLY === "1";
+// You're working here yourself: a full run waits for you (no second session as the same agent in the same files).
+if (!force && waitsForPerson(boardOnly ? "board-only" : "full", liveHere(me.root))) {
   log("you were active in this repo in the last 10 minutes; holding off until you stop or close the session");
   process.exit(0);
 }
@@ -72,7 +78,8 @@ async function call(name, args = {}) {
 }
 
 // Gate: held, or the plan past 85% (self-started work), means no run.
-const w = await call("my_work", me.link ? { project: me.link.project } : {});
+// board_only: cards labelled Code wait for the person's session, so they aren't this run's suggestion.
+const w = await call("my_work", { ...(me.link ? { project: me.link.project } : {}), ...(boardOnly ? { board_only: true } : {}) });
 if (w?.onHold && !force) {
   log(`${job}: on hold; no run`);
   process.exit(0);
@@ -209,15 +216,19 @@ const codeDirs = (() => {
   }
 })();
 const addDirs = codeDirs.flatMap((d) => ["--add-dir", d.dir]);
-const codexAddDirs = codeDirs.filter((d) => !d.readOnly).flatMap((d) => ["--add-dir", d.dir]);
+// A board-only run: Codex's read-only sandbox, whatever AGENTORB_CODEX_SANDBOX says, and no writable folders.
+const codexAddDirs = boardOnly ? [] : codeDirs.filter((d) => !d.readOnly).flatMap((d) => ["--add-dir", d.dir]);
 const codexReadOnly = codeDirs.filter((d) => d.readOnly).map((d) => d.dir);
-const codexPrompt = (p) => (codexReadOnly.length ? `${p}\n\nThe code at ${codexReadOnly.join(", ")} is read-only for you: read it with cat, ls and git (git -C <path> log, git -C <path> show); never edit it or write into it.` : p);
+const codexPrompt = (p) => {
+  const q = codexReadOnly.length ? `${p}\n\nThe code at ${codexReadOnly.join(", ")} is read-only for you: read it with cat, ls and git (git -C <path> log, git -C <path> show); never edit it or write into it.` : p;
+  return boardOnly ? `${q}\n\n${BOARD_ONLY_PROMPT}` : q;
+};
 const codexArgs = () => [
   "exec",
   "--json",
   "--skip-git-repo-check",
   "-s",
-  process.env.AGENTORB_CODEX_SANDBOX || "workspace-write",
+  boardOnly ? "read-only" : process.env.AGENTORB_CODEX_SANDBOX || "workspace-write",
   "-c",
   'approval_policy="never"',
   // The folder's own agent, whatever Codex's own AgentOrb connection signs in as.
@@ -228,10 +239,15 @@ const codexArgs = () => [
   ...codexAddDirs,
   codexPrompt(instructions(prompt)),
 ];
+// GIT_OPTIONAL_LOCKS=0: the run's git status / diff don't take the index lock, so your own commit never meets an
+// index.lock left by it. AGENTORB_BOARD_ONLY: the hooks (pre-tool.mjs) refuse file changes too.
+const env = { ...process.env, AGENTORB_HEADLESS: "1", AGENTORB_KEY: key, GIT_OPTIONAL_LOCKS: "0", ...(boardOnly ? { AGENTORB_BOARD_ONLY: "1" } : {}) };
+const claudeArgs = boardOnly ? [...boardOnlyArgs(rest), "--append-system-prompt", BOARD_ONLY_PROMPT] : rest;
+if (boardOnly) log(`${job}: board-only run (no file changes; code cards are prepared and labelled Code for your session)`);
 const child =
   engine === "codex"
-    ? spawn("codex", codexArgs(), { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, AGENTORB_HEADLESS: "1", AGENTORB_KEY: key } })
-    : spawn("claude", ["-p", prompt, ...rest, ...addDirs, "--output-format", "stream-json", "--verbose"], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, AGENTORB_HEADLESS: "1", AGENTORB_KEY: key } });
+    ? spawn("codex", codexArgs(), { stdio: ["ignore", "pipe", "inherit"], env })
+    : spawn("claude", ["-p", prompt, ...claudeArgs, ...addDirs, "--output-format", "stream-json", "--verbose"], { stdio: ["ignore", "pipe", "inherit"], env });
 const parse = engine === "codex" ? readCodex : read;
 // The routine's ring on the card is the routine's own name (routine_done keeps it); the run itself reports under "routine".
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => child.kill(sig));

@@ -167,7 +167,17 @@ if (pinnedProject) {
 }
 
 // Only this repo's project: news from other boards belongs to the sessions working on them.
-const [news, here] = await Promise.all([call("whats_new", pinnedProject ? { project: pinnedProject.project } : {}), call("who_is_here", {})]);
+// A person's session also hears which cards the agent's board-only runs left for them (labelled Code: code work).
+const live = !process.env.AGENTORB_HEADLESS && pinnedProject;
+const [news, here, work] = await Promise.all([
+  call("whats_new", pinnedProject ? { project: pinnedProject.project } : {}),
+  call("who_is_here", {}),
+  live ? call("my_work", { project: pinnedProject.project }) : Promise.resolve({}),
+]);
+const codeReady = Array.isArray(work?.json?.code_ready) ? work.json.code_ready : [];
+if (codeReady.length) {
+  lines.push(`${codeReady.length} code card${codeReady.length === 1 ? "" : "s"} ready for you (the background runs prepared ${codeReady.length === 1 ? "it" : "them"}; the plan is in each card's notes): ${codeReady.slice(0, 5).map((c) => `“${c.title}” (${c.id})`).join(", ")}${codeReady.length > 5 ? `, and ${codeReady.length - 5} more` : ""}. Tell the person in one line; when they say go, get_card it, claim_task, do it here, and take the Code label off (label_card) when it's done.`);
+}
 if (news.json) {
   const n = news.json;
   const forYou = Array.isArray(n.forYou) ? n.forYou : [];
