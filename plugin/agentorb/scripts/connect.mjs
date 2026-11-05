@@ -21,6 +21,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, rmSync,
 import { homedir, hostname } from "node:os";
 import { createHash } from "node:crypto";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { freeAgentFolder, ROLES, serverUrl, session, startDir, strayServers, worktreeOf, writeLink } from "./config.mjs";
 import { setUpForRole } from "./role-setup.mjs";
 
@@ -237,8 +238,21 @@ if (answer.replaced) {
   }
 }
 for (const x of strayServers(home)) say(`This folder also has an AgentOrb MCP server set up by hand ("${x.name}", ${x.scope} scope) with an older key: it would still act as that agent. Remove it with: ${x.remove}`);
+// Codex has no /agentorb:init to ask: its folder gets the background runner here, unless --no-runner (cli.mjs sets
+// AGENTORB_RUNNER=off), so a Codex agent works while nobody is there the way a Claude Code one does after init.
+const runnerHere = engine === "codex" && process.env.AGENTORB_RUNNER !== "off";
 if (beside) {
   say(`Open it: cd "${resolve(home)}" && ${engine === "codex" ? "codex" : "claude"}`);
-  say(engine === "codex" ? "Keep it working while you're away: npx -y github:x-enial/agentorb-plugin runner on (in that folder)." : "Keep it working while you're away: /agentorb:runner on, in a session there.");
-} else say("Restart Claude Code in this folder (or /mcp, then reconnect agentorb) so the connection uses the new agent.");
+  if (!runnerHere) say(engine === "codex" ? "Keep it working while you're away: npx -y github:x-enial/agentorb-plugin runner on (in that folder)." : "Keep it working while you're away: /agentorb:runner on, in a session there.");
+} else if (!engine) say("Restart Claude Code in this folder (or /mcp, then reconnect agentorb) so the connection uses the new agent.");
+if (runnerHere) {
+  say("");
+  say("Keeping it working while you're away: the background runner picks up its cards, messages and routines.");
+  try {
+    execFileSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "runner-setup.mjs"), "install"], { cwd: home, stdio: "inherit", env: { ...process.env, CLAUDE_PROJECT_DIR: home, PWD: home } });
+    say(`Turn it off any time: npx -y github:x-enial/agentorb-plugin runner off${beside ? " (in that folder)" : ""}.`);
+  } catch {
+    say(`The runner didn't go on (see above). Once that's fixed: npx -y github:x-enial/agentorb-plugin runner on${beside ? " (in that folder)" : ""}.`);
+  }
+}
 

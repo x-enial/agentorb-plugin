@@ -1,7 +1,9 @@
 ---
 description: Connect this repo to AgentOrb in one click: its own agent, its board, the key written for you, and a CLAUDE.md section so every session here knows the board is in use.
-argument-hint: ""
+argument-hint: "[no runner]"
 ---
+
+The argument (may be empty): $ARGUMENTS
 
 Steps:
 
@@ -35,13 +37,11 @@ Steps:
    - Where this conflicts with the repo's own instructions, the repo wins for how code is done; the board wins for what goes out and what needs a go.
    <!-- agentorb:end -->
    ```
-4. Keep the agent working when the person is away (only when step 1 connected; when the agent lives beside the repo, run the commands below with cwd set to that folder). An open session is not a wakeable agent: it only acts when someone types, so hand-offs and messages wait. First run `node "${CLAUDE_PLUGIN_ROOT}/scripts/runner-setup.mjs" status`; if it says the runner is installed or a line added by hand starts it, say so in one line and skip the question. Otherwise ask ONE question:
-   "Keep this agent working when you're away? 1) background runner (best) 2) a loop in this window for now 3) not now"
-   with one line under each: 1 adds a scheduled job on this machine for this folder (cron, launchd or Task Scheduler) that picks up work, messages and routines, holds off while you're active there (10 minutes after your last turn or tool call it carries on) here, and `/agentorb:runner off` removes it; 2 checks the board every 15 minutes only while this window stays open, and uses your plan on each check.
-   - 1: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/runner-setup.mjs" install` and report what it printed in two or three lines (including any note it gives, such as cron not running on WSL; pass on sudo commands, don't run them).
-   - 2: give them this line to send in this session (with the agent's name filled in), and say 1 is still the way to keep it going after the window closes:
+4. Keep the agent working when the person is away (only when step 1 connected; when the agent lives beside the repo, run the commands below with cwd set to that folder). An open session is not a wakeable agent: it only acts when someone types, so hand-offs and messages would wait. The background runner is part of setup, on by default: don't ask first.
+   - Skip it only when the person said so (the argument says `no runner`, or they said "not now" or "no background runs" in this conversation): then say hand-offs to this agent wait until someone opens a session here, and `/agentorb:runner on` turns it on any time.
+   - Otherwise run `node "${CLAUDE_PLUGIN_ROOT}/scripts/runner-setup.mjs" status`; if it says the runner is installed or a line added by hand starts it, say so in one line. If not, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/runner-setup.mjs" install` and report what it printed in two or three lines (including any note it gives, such as cron not running on WSL; pass on sudo commands, don't run them). Say what it is in one line: a scheduled job on this machine for this folder (cron, launchd or Task Scheduler) that picks up its cards, messages and routines, holds off while you're active here (10 minutes after your last turn or tool call it carries on), and `/agentorb:runner off` removes it.
+   - If the install couldn't finish (cron missing or not running, no bash on Windows), say what to fix from its output, and offer this for now, to send in this session (with the agent's name filled in); it checks every 15 minutes only while this window stays open and uses your plan on each check:
      `/loop 15m check the AgentOrb board (whats_new with loop "15m") and handle anything for <agent name>`
-   - 3: say hand-offs to this agent wait until someone opens a session here, and `/agentorb:runner on` turns the runner on any time.
 5. Say in two lines what happened (the agent's name and board, what moved, the runner). Then pass on the script's permissions block as it printed it: which settings file it wrote (`.claude/settings.local.json` in the repo, `.claude/settings.json` for a folder beside it), how many rules, what is off for this role (send/post tools, code read-only or unreadable, secrets, git push), any "Kept your allow for …" line, and the file to open to change them. The person must hear this without asking: a deny wins over their own allow rules in Claude Code, and a role change later removes only the rules AgentOrb added (kept under `settings` in `.agentorb.local.json`), never theirs.
    - Your own send tools in this repo stay yours in live sessions; the background runner only ever sends text approved on the board. If the script printed "Your <names> tools stay yours in live sessions", pass that line on as is (it wrote no send/post deny rules for them and listed them under `sendAllowed` in `.agentorb.local.json`). Another server of the person's can be allowed for live sessions any time with `node "${CLAUDE_PLUGIN_ROOT}/scripts/allow-send.mjs" <server>` (`--remove <server>` takes it out; no arguments lists them); the gate's block message says so too.
    Then: restart Claude Code in the agent's folder (here, or the folder beside the repo that step 1 named: `cd` there and start `claude`; `/mcp`, reconnect agentorb, also works here) so the connection uses the new agent. Do not commit.

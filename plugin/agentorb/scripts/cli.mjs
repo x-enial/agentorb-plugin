@@ -4,6 +4,7 @@
  * engine run.mjs knows). From the plugin repo, nothing to install first:
  *
  *   npx -y github:x-enial/agentorb-plugin connect --engine codex   link this folder to its board (approve in the browser)
+ *                                                                  and turn its background runner on (--no-runner: not now)
  *   npx -y github:x-enial/agentorb-plugin runner on                keep it working while you're away
  *   npx -y github:x-enial/agentorb-plugin runner status | off
  *   npx -y github:x-enial/agentorb-plugin run                      one run now
@@ -65,13 +66,17 @@ const opt = (name) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 
+// --no-runner: connect (or add-agent) with --engine codex without turning the background runner on (connect.mjs).
+const noRunner = args.includes("--no-runner") ? { AGENTORB_RUNNER: "off" } : {};
+const rest = args.filter((a) => a !== "--no-runner");
+
 if (cmd === "connect") {
   const engine = (opt("engine") || "claude").toLowerCase();
   if (!["claude", "codex"].includes(engine)) {
     say("--engine is claude or codex.");
     process.exit(1);
   }
-  const code = node("connect.mjs", args.filter((a, i) => a !== "--engine" && args[i - 1] !== "--engine"), engine === "codex" ? { AGENTORB_VENDOR: "codex" } : {});
+  const code = node("connect.mjs", rest.filter((a, i) => a !== "--engine" && rest[i - 1] !== "--engine"), engine === "codex" ? { AGENTORB_VENDOR: "codex", ...noRunner } : {});
   if (code === 4) say("If that was you: npx -y github:x-enial/agentorb-plugin connect --accept");
   if (code !== 0) process.exit(code);
   // With --engine codex, connect.mjs marks the link itself (the agent's folder may be beside the repo, not here); for
@@ -81,13 +86,15 @@ if (cmd === "connect") {
     say("");
     say("For your own Codex sessions in the agent's folder, connect Codex to AgentOrb once (pick the same agent under \"One you have\"):");
     say("  codex mcp add agentorb --url https://app.agent-orb.com/api/mcp");
-    say("Then keep it working while you're away (in that folder):");
-    say("  npx -y github:x-enial/agentorb-plugin runner on");
+    if (noRunner.AGENTORB_RUNNER) {
+      say("Then keep it working while you're away (in that folder):");
+      say("  npx -y github:x-enial/agentorb-plugin runner on");
+    }
   }
   process.exit(0);
 } else if (cmd === "add-agent") {
   // Another agent on this codebase, in <repo>-agents/<role>/ beside it (add-agent.mjs).
-  process.exit(node("add-agent.mjs", args));
+  process.exit(node("add-agent.mjs", rest, noRunner));
 } else if (cmd === "engine") {
   const engine = (args[0] || "").toLowerCase();
   if (!["claude", "codex"].includes(engine)) say("agentorb engine claude|codex");
@@ -98,7 +105,8 @@ if (cmd === "connect") {
   process.exit(spawnSync("bash", [join(stableScripts(), "agentorb-run.sh"), ...args], { stdio: "inherit" }).status ?? 1);
 } else {
   say(`AgentOrb ${version}`);
-  say("  connect [--engine claude|codex]   link this folder to its board (approve in your browser)");
+  say("  connect [--engine claude|codex] [--no-runner]   link this folder to its board (approve in your browser);");
+  say("                                    with codex, the runner goes on too");
   say("  add-agent --role <role> [--name \"…\"] [--engine codex]   another agent on this codebase, beside the repo");
   say("  engine claude|codex               which agent this folder's runs start");
   say("  runner on | off | status          the background runner for this folder");

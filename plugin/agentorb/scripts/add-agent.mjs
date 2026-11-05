@@ -103,4 +103,6 @@ if (code !== 0) {
 // With --engine codex, connect.mjs (AGENTORB_VENDOR=codex) marks the folder's link `engine: "codex"` itself.
 say("");
 say(`Open it: cd "${resolve(dir)}" && ${engine === "codex" ? "codex" : "claude"}`);
-say(engine === "codex" ? "Keep it working while you're away: npx -y github:x-enial/agentorb-plugin runner on (in that folder)." : "Keep it working while you're away: /agentorb:runner on, in a session there.");
+// A Codex agent's runner went on in connect.mjs (unless --no-runner); a Claude Code one's starts from a session there.
+if (engine !== "codex") say("Keep it working while you're away: /agentorb:runner on, in a session there.");
+else if (process.env.AGENTORB_RUNNER === "off") say("Keep it working while you're away: npx -y github:x-enial/agentorb-plugin runner on (in that folder).");
