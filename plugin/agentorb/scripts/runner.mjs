@@ -96,21 +96,34 @@ for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => ((stopping = true
 // One look a minute, not a connection held open: a held long poll is a serverless function running the whole time
 // (four minutes each, all day: it was most of the board's compute bill). `once: true` makes the board answer at once
 // with what it sees; the runner sleeps here, where sleeping is free, and asks again in about a minute.
+// 0.40.0: a "nothing new" answer carries a pulse token; sent back, the board answers from one query while nothing has
+// moved, instead of looking through everything every minute. After half an hour of nothing, it asks every 3 minutes
+// (the board calls a runner off after 6 minutes of silence); anything for it brings back the minute.
 const POLL_MS = 60_000;
+const IDLE_POLL_MS = 3 * 60_000;
+const IDLE_AFTER_MS = 30 * 60_000;
+let pulse = null;
+let quietSince = Date.now();
 async function wait() {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 30_000);
   try {
-    const res = await fetch(`${base}/api/agents/wait`, { method: "POST", signal: ctl.signal, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ ...(me.link ? { project: me.link.project } : {}), once: true, ...(mode === "board-only" ? { boardOnly: true } : {}) }) });
+    const res = await fetch(`${base}/api/agents/wait`, { method: "POST", signal: ctl.signal, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ ...(me.link ? { project: me.link.project } : {}), once: true, ...(mode === "board-only" ? { boardOnly: true } : {}), ...(pulse ? { pulse } : {}) }) });
     if (res.status === 401) return { fatal: "the key is invalid or revoked" };
     if (!res.ok) return { error: `HTTP ${res.status}` };
-    return await res.json();
+    const a = await res.json();
+    // The token goes with the kind of poll it came from (board-only or not); a new one, or none, replaces it.
+    pulse = typeof a?.pulse === "string" ? a.pulse : null;
+    if (a?.wake || a?.held) quietSince = Date.now();
+    return a;
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) };
   } finally {
     clearTimeout(t);
   }
 }
+/** How long to sleep before the next look while nothing is due. */
+const idlePoll = () => (Date.now() - quietSince >= IDLE_AFTER_MS ? IDLE_POLL_MS : POLL_MS);
 
 function run() {
   return new Promise((resolve) => {
@@ -138,6 +151,7 @@ function outcome() {
 while (!stopping) {
   stepAsideIfOutdated();
   const now = runMode(session());
+  if (now !== mode) pulse = null;
   if (now !== mode) log(`background runs are ${now === "board-only" ? "board-only now (no file changes)" : "allowed to change code now (they wait while you're active here)"}`);
   mode = now;
   const a = await wait();
@@ -162,7 +176,7 @@ while (!stopping) {
     // Nothing due: whatever woke it last was moved, so the next wake for it (a routine's next day) is new, not a repeat.
     last = "";
     repeats = 0;
-    await nap(jitter(POLL_MS, 0.2));
+    await nap(jitter(idlePoll(), 0.2));
     continue;
   }
   const what = `${a.why}:${a.what}`;
