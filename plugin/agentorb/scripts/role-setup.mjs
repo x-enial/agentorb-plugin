@@ -168,6 +168,19 @@ function readRecord(localFile) {
   }
 }
 
+/**
+ * The record's entry for one settings file. The record keeps absolute paths, so a folder that was moved finds its old
+ * entry under a path that no longer exists: the same settings file (.claude/settings.json or settings.local.json)
+ * under a folder that is gone is this one's.
+ */
+function recordFor(record, file) {
+  if (!record) return undefined;
+  if (record[file]) return record[file];
+  const tail = join(".claude", basename(file));
+  const moved = Object.keys(record).find((k) => k !== file && k.endsWith(tail) && !existsSync(dirname(dirname(k))));
+  return moved ? record[moved] : undefined;
+}
+
 /** Keep the record in the local file (only when the file exists: connect.mjs makes it, with the key, first). Never printed. */
 function writeRecord(localFile, settings) {
   if (!existsSync(localFile)) return;
@@ -386,20 +399,24 @@ export function setUpForRole(root, role, project, codeArg, localFile = join(root
   }
 
   // An allow the person wrote themselves stays theirs: it isn't recorded as ours, so a later setup never takes it out.
+  // With no record yet (a folder set up before records), the shapes the plugin could have written count as ours, as
+  // the sweep below takes them out: otherwise its own git log/show allows read as the person's, weren't put back, and
+  // the sweep removed them (Nov 6 2026, the SetHours marketing folder lost its git history this way).
   for (const [file, want] of plan) {
-    const ours = record?.[file]?.allow ?? [];
+    const ours = record ? (recordFor(record, file)?.allow ?? []) : (legacyRules(R, !!code?.inside).allow ?? []);
     const theirs = allowsIn(file).filter((r) => !ours.includes(r));
     if (want.rules.allow) want.rules.allow = want.rules.allow.filter((r) => !theirs.includes(r));
   }
 
   // Out with the last setup's rules (the record; before records, every shape the plugin could have written here), in with this role's.
-  const files = new Set([...plan.keys(), ...Object.keys(record ?? {})]);
+  // A recorded file under a folder that's gone (this one, moved: recordFor) has nothing to take out there.
+  const files = new Set([...plan.keys(), ...Object.keys(record ?? {}).filter((k) => existsSync(dirname(dirname(k))))]);
   if (!record && code) files.add(join(me.root, ".claude", code.inside ? "settings.local.json" : "settings.json"));
   const settings = [];
   const next = {};
   for (const file of files) {
     const want = plan.get(file);
-    const remove = record ? (record[file] ?? {}) : legacyRules(R, !!code?.inside);
+    const remove = record ? (recordFor(record, file) ?? {}) : legacyRules(R, !!code?.inside);
     const { removed, added } = mergeSettings(file, want?.rules ?? {}, remove);
     if (want && KINDS.some((k) => want.rules[k]?.length)) {
       next[file] = Object.fromEntries(KINDS.filter((k) => want.rules[k]?.length).map((k) => [k, want.rules[k]]));
