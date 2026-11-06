@@ -249,8 +249,8 @@ if (runnerHere) {
   say("");
   say("Keeping it working while you're away: the background runner picks up its cards, messages and routines.");
   try {
+    // runner-setup says how to turn it off (the Codex words: the link says engine codex).
     execFileSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "runner-setup.mjs"), "install"], { cwd: home, stdio: "inherit", env: { ...process.env, CLAUDE_PROJECT_DIR: home, PWD: home } });
-    say(`Turn it off any time: npx -y github:x-enial/agentorb-plugin runner off${beside ? " (in that folder)" : ""}.`);
   } catch {
     say(`The runner didn't go on (see above). Once that's fixed: npx -y github:x-enial/agentorb-plugin runner on${beside ? " (in that folder)" : ""}.`);
   }

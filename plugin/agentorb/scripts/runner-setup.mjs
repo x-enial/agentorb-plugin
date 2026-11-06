@@ -38,6 +38,9 @@ const inCache = resolve(pluginRoot).startsWith(resolve(cacheDir) + sep);
 const homeRunnerDir = join(home, ".agentorb", "runner");
 const inHome = resolve(pluginRoot).startsWith(resolve(homeRunnerDir) + sep);
 
+// How to turn it off, in the words of the tool that runs here: Claude Code's command, or the CLI for a Codex folder.
+const offLine = me.link?.engine === "codex" ? "Turn it off with npx -y github:x-enial/agentorb-plugin runner off, in this folder." : "Turn it off with /agentorb:runner off.";
+
 function platform() {
   const forced = process.env.AGENTORB_RUNNER_PLATFORM;
   if (forced) return forced;
@@ -219,7 +222,7 @@ function lockHeld() {
 function cronStatus() {
   const tab = readCrontab();
   if (tab.missing) return cronMissing();
-  if (tab.error) return say(`AgentOrb: couldn't read your crontab (${tab.error}).`);
+  if (tab.error) return say(`AgentOrb: couldn't read your crontab (${tab.error}).`), 1;
   const mine = tab.lines.filter(ours);
   const hand = tab.lines.filter(handMade);
   if (mine.length) say(`Background runner for ${folder}: installed (a crontab line, every minute; marked "agentorb-runner").`);
@@ -260,7 +263,7 @@ function cronInstall(replace) {
   if (!which("claude")) say("Note: `claude` isn't on your PATH here, so runs can't start. Install Claude Code or add it to PATH, then run install again.");
   say(`Log: ${logFile}`);
   wslCronNote();
-  say("Turn it off with /agentorb:runner off.");
+  say(offLine);
   return 0;
 }
 
@@ -399,7 +402,7 @@ function launchdInstall() {
   }
   if (!which("claude")) say("Note: `claude` isn't on your PATH here, so runs can't start. Install Claude Code, then run install again.");
   say(`Log: ${logFile}`);
-  say("Turn it off with /agentorb:runner off.");
+  say(offLine);
   return 0;
 }
 
@@ -498,7 +501,7 @@ function taskInstall() {
   say("It takes work, messages and due routines, and holds off while you're active in this folder (it resumes 10 minutes after your last turn or tool call, or as soon as the session closes).");
   if (!which("claude")) say("Note: `claude` isn't on your PATH here, so runs can't start. Install Claude Code, then run install again.");
   say(`Log: ${logFile}`);
-  say("Turn it off with /agentorb:runner off.");
+  say(offLine);
   return 0;
 }
 
@@ -568,4 +571,6 @@ if (!run) {
   process.exit(1);
 }
 if (!me.link) say(`Note: ${folder} isn't linked to a board yet (.agentorb.json); /agentorb:init connects it.`);
-process.exit((await run()) ?? 0);
+// A branch may end in `return say(...)` (true): only a number is an exit code; anything else is a plain stop.
+const code = await run();
+process.exit(typeof code === "number" ? code : 0);
